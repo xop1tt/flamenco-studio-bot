@@ -10,7 +10,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiogram import Bot
 from aiogram.methods import Response, SendMessage, TelegramMethod
@@ -28,9 +28,15 @@ from flamenco_bot.runtime.bot_logging import (
 )
 from flamenco_bot.runtime.logging_utils import RetentionRotatingFileHandler
 from flamenco_bot.runtime.monitoring import monitor_health
+from flamenco_bot.runtime.paths import get_log_directory
 
 
 class LoggingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_log_directory_can_be_configured_by_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"BOT_LOG_DIR": directory}):
+                self.assertEqual(get_log_directory(), Path(directory))
+
     async def test_log_files_are_private_and_expired_backups_are_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "bot.log"

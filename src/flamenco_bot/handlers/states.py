@@ -12,6 +12,10 @@ class LessonForm(StatesGroup):
     waiting_for_purchase_confirmation = State()
 
 
+class SupportForm(StatesGroup):
+    waiting_for_message = State()
+
+
 class AdminForm(StatesGroup):
     waiting_for_search = State()
     waiting_for_name_target = State()

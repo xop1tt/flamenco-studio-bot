@@ -10,7 +10,7 @@ from aiogram.client.session.middlewares.base import (
 from aiogram.methods import Response, TelegramMethod
 
 from .logging_utils import RetentionRotatingFileHandler
-from .paths import PROJECT_ROOT
+from .paths import get_log_directory
 
 
 MESSAGE_METHODS = {
@@ -41,7 +41,7 @@ def create_answers_logger(log_directory: Optional[Path] = None) -> logging.Logge
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    target_directory = log_directory or PROJECT_ROOT / "logs"
+    target_directory = log_directory or get_log_directory()
     target_directory.mkdir(parents=True, exist_ok=True)
     target_file = (target_directory / "answers_log").resolve()
     if not any(

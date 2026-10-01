@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from ...runtime.admin_access import get_admin_id
+from ...class_catalog import format_class_schedule
 from . import (
     ACCOUNT_MENU,
     BACK_TO_LESSONS,
@@ -67,13 +68,17 @@ async def open_lessons_from_menu(message: Message, state: FSMContext) -> None:
 
 
 @router.message(F.text == SCHEDULE)
-async def show_schedule(message: Message, state: FSMContext) -> None:
+async def show_schedule(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
     await state.clear()
     sender = message.from_user
     logger.info("Schedule requested telegram_id=%s", sender.id if sender else None)
+    slots = await repository.list_class_slots(limit=50)
     await message.answer(
-        "Актуальное расписание зависит от набора групп. "
-        "Оставьте заявку на занятие — администратор подтвердит свободное время.",
+        format_class_schedule(slots),
         reply_markup=lessons_menu_keyboard(),
     )
 

@@ -52,7 +52,6 @@ from flamenco_bot.keyboards.user.lessons import (
     return_from_lessons,
     select_class,
     select_purchase,
-    submit_booking_request,
     submit_purchase_request,
 )
 from flamenco_bot.payments import ProviderPayment
@@ -136,8 +135,8 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_schedule_does_not_claim_availability(self):
-        await schedule_command(self.message, self.state)
-        self.assertIn("подтвердил свободное время", self.message.last_answer.args[0])
+        await schedule_command(self.message, self.state, self.repository)
+        self.assertIn("нет свободных слотов", self.message.last_answer.args[0])
 
     async def test_buy_explains_yookassa_checkout(self):
         await buy_command(self.message, self.repository, self.state)
@@ -190,7 +189,7 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         await show_main_menu(self.message, self.state, self.repository)
         await open_account_from_menu(self.message, self.state)
         await open_lessons_from_menu(self.message, self.state)
-        await show_schedule(self.message, self.state)
+        await show_schedule(self.message, self.state, self.repository)
         await open_purchase_menu(self.message, self.state)
         await open_class_menu(self.message, self.state)
         await cancel_from_menu(self.message, self.state, self.repository)
@@ -303,22 +302,14 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
             main_menu_keyboard(),
         )
 
-    async def test_booking_and_purchase_workflows_store_requests(self):
+    async def test_class_selection_shows_available_slots_from_repository(self):
         await choose_class(self.message, self.state)
         self.message.text = "Фламенко для начинающих"
-        await select_class(self.message, self.state)
-        self.assertEqual(self.state.data["class_name"], self.message.text)
+        await select_class(self.message, self.state, self.repository)
+        self.repository.list_available_class_slots.assert_awaited_once_with("beginner")
+        self.assertIn("нет свободных слотов", self.message.last_answer.args[0])
 
-        self.message.text = "по будням вечером"
-        await submit_booking_request(self.message, self.state, self.repository)
-        self.repository.create_lesson_request.assert_awaited_with(
-            telegram_id=1001,
-            kind="booking",
-            details="Фламенко для начинающих; пожелания по времени: по будням вечером",
-        )
-        self.assertIn("Запись пока не подтверждена", self.message.last_answer.args[0])
-        self.repository.create_lesson_request.reset_mock()
-
+    async def test_purchase_workflow_still_works(self):
         self.message.text = "Разовое занятие — 1000 ₽"
         await select_purchase(self.message, self.state)
         gateway = SimpleNamespace(is_configured=False)
@@ -491,6 +482,8 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
                 "🔎 Найти участника",
                 "✏️ Изменить имя участника",
                 "📱 Изменить телефон участника",
+                "🗓 Слоты занятий",
+                "📨 Обращения поддержки",
                 "🏠 Главное меню",
             },
         )

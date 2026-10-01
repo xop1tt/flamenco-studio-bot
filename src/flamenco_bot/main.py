@@ -13,7 +13,7 @@ from .runtime.bot_logging import (
     configure_logging,
 )
 from .runtime.monitoring import monitor_health
-from .runtime.security import SecurityMiddleware
+from .runtime.security import SecurityMiddleware, SupportRateLimiter
 from .commands import get_bot_commands
 from .config import Config
 from .database import (
@@ -89,6 +89,7 @@ async def main():
         dp = Dispatcher()
         lifecycle.dispatcher = dp
         dp["repository"] = repository
+        dp["support_limiter"] = SupportRateLimiter()
         dp["restart_controller"] = lifecycle
         dp["payment_gateway"] = YooKassaClient(
             Config.YOOKASSA_SHOP_ID,
@@ -137,7 +138,7 @@ async def main():
             )
         logger.info("Bot polling started")
         lifecycle.polling_started = True
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, tasks_concurrency_limit=64)
         logger.info("Bot polling stopped")
     except Exception as error:
         if lifecycle is None or not lifecycle.polling_started:

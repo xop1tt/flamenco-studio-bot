@@ -15,6 +15,7 @@ from ..keyboards.user import (
 from ..keyboards.user.main_menu import ensure_profile
 from ..keyboards.user.account import show_account
 from ..keyboards.user.navigation import cancel_current_action
+from ..class_catalog import format_class_schedule
 
 
 logger = logging.getLogger("bot.handlers.core")
@@ -31,8 +32,8 @@ async def start_command(
     profile = await ensure_profile(message, repository)
     await message.answer(
         "¡Hola, {}! Добро пожаловать в студию фламенко.\n"
-        "Здесь можно посмотреть учетную запись и оставить заявку на занятия. "
-        "Расписание и стоимость подтвердит администратор.".format(profile.user_name),
+        "Здесь можно посмотреть учетную запись, выбрать свободное занятие "
+        "и обратиться в поддержку.".format(profile.user_name),
         reply_markup=main_menu_keyboard(is_admin=profile.is_admin),
     )
     logger.info("Handled /start telegram_id=%s", profile.telegram_id)
@@ -54,6 +55,13 @@ async def help_command(
         "/buy — запрос условий покупки занятий\n"
         "/help — эта справка\n"
         "/cancel — отменить текущий ввод\n"
+        "/slots — слоты занятий (администратор)\n"
+        "/support_tickets — обращения поддержки (администратор)\n"
+        "/support_reply ID текст — ответить (администратор)\n"
+        "/support_close ID — закрыть обращение (администратор)\n"
+        "/slot_add ФОРМАТ ISO-ДАТА ВМЕСТИМОСТЬ — создать слот (администратор)\n"
+        "/slot_capacity ID ЧИСЛО — изменить вместимость (администратор)\n"
+        "/slot_close ID — закрыть слот (администратор)\n"
         "/admin — команды администратора\n"
         "/requests — список незакрытых заявок (администратор)\n"
         "/done ID — закрыть заявку (администратор)",
@@ -98,11 +106,15 @@ async def lessons_command(
 
 
 @router.message(Command("schedule"))
-async def schedule_command(message: Message, state: FSMContext) -> None:
+async def schedule_command(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
     await state.clear()
+    slots = await repository.list_class_slots(limit=50)
     await message.answer(
-        "Актуальное расписание зависит от набора групп. "
-        "Оставьте заявку на занятие, чтобы администратор подтвердил свободное время.",
+        format_class_schedule(slots),
         reply_markup=lessons_menu_keyboard(),
     )
     logger.info(

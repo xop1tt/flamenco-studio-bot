@@ -1,6 +1,7 @@
 import os
 import time
 import unittest
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
@@ -8,6 +9,7 @@ import asyncpg
 from flamenco_bot.database.repository import (
     PaymentAttemptUnresolved,
     PostgresRepository,
+    SlotUnavailableError,
 )
 
 
@@ -107,7 +109,7 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             [record["version"] for record in versions],
-            ["001", "002", "003"],
+            ["001", "002", "003", "004"],
         )
         self.assertEqual(index_name, "lesson_requests_pending_created_idx")
 
@@ -287,3 +289,65 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             datetime.now(timezone.utc) - timedelta(minutes=5)
         )
         self.assertEqual((statistics.total_users, statistics.online_users), (1, 1))
+
+    async def test_slot_capacity_and_support_ticket_flows_are_transactional(self):
+        repository = self._require_repository()
+        additional_users = (self.telegram_id + 1, self.telegram_id + 2)
+        for telegram_id in additional_users:
+            await repository.get_or_create_profile(
+                telegram_id,
+                "Integration test participant",
+                False,
+            )
+
+        slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + timedelta(days=1),
+            2,
+            self.telegram_id,
+        )
+        outcomes = await asyncio.gather(
+            *(
+                repository.book_class_slot(slot.id, telegram_id)
+                for telegram_id in (self.telegram_id, *additional_users)
+            ),
+            return_exceptions=True,
+        )
+        self.assertEqual(
+            sum(not isinstance(item, BaseException) for item in outcomes),
+            2,
+        )
+        self.assertEqual(
+            sum(isinstance(item, SlotUnavailableError) for item in outcomes),
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "ниже числа"):
+            await repository.update_class_slot_capacity(slot.id, 1)
+
+        ticket_id, created = await repository.create_support_message(
+            self.telegram_id,
+            "Integration support message",
+        )
+        same_ticket_id, created_again = await repository.create_support_message(
+            self.telegram_id,
+            "Follow-up",
+        )
+        self.assertTrue(created)
+        self.assertFalse(created_again)
+        self.assertEqual(ticket_id, same_ticket_id)
+        self.assertEqual(
+            (await repository.list_open_support_tickets())[0].last_message,
+            "Follow-up",
+        )
+        self.assertEqual(
+            await repository.reply_support_ticket(
+                ticket_id,
+                self.telegram_id + 10,
+                "Admin response",
+            ),
+            self.telegram_id,
+        )
+        self.assertEqual(
+            await repository.close_support_ticket(ticket_id, self.telegram_id + 10),
+            self.telegram_id,
+        )

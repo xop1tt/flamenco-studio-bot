@@ -9,6 +9,7 @@ from aiogram.utils.token import TokenValidationError
 
 from flamenco_bot.database.repository import DatabaseUnavailableError
 from flamenco_bot.main import main as run_bot
+from flamenco_bot.runtime.security import SupportRateLimiter
 from tests.support import FakeDispatcher, FakeRepository
 
 
@@ -43,7 +44,14 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
 
         connect.assert_awaited_once()
         repository.initialize.assert_awaited_once()
-        dispatcher.start_polling.assert_awaited_once_with(bot)
+        dispatcher.start_polling.assert_awaited_once_with(
+            bot,
+            tasks_concurrency_limit=64,
+        )
+        self.assertIsInstance(
+            getattr(dispatcher, "support_limiter"),
+            SupportRateLimiter,
+        )
         dispatcher.update.outer_middleware.assert_not_called()
         dispatcher.message.middleware.assert_called_once()
         dispatcher.message.outer_middleware.assert_called_once()
@@ -87,7 +95,10 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         connect.assert_not_awaited()
         repository.initialize.assert_awaited_once()
         repository.close.assert_awaited_once()
-        dispatcher.start_polling.assert_awaited_once_with(bot)
+        dispatcher.start_polling.assert_awaited_once_with(
+            bot,
+            tasks_concurrency_limit=64,
+        )
 
     async def test_invalid_token_fails_without_raw_traceback(self):
         repository = FakeRepository()

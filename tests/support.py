@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 import uuid
 from unittest.mock import AsyncMock, Mock
 
@@ -29,6 +30,7 @@ class FakeMessage:
         self.chat = SimpleNamespace(type="private")
         self.contact = contact
         self.answer = AsyncMock()
+        self.bot: Any = None
 
     @property
     def last_answer(self):
@@ -100,6 +102,17 @@ class FakeRepository:
         self.search_profiles = AsyncMock(return_value=[self.profile])
         self.get_profile = AsyncMock(return_value=self.profile)
         self.create_lesson_request = AsyncMock(return_value=self.request)
+        self.list_class_slots = AsyncMock(return_value=[])
+        self.list_available_class_slots = AsyncMock(return_value=[])
+        self.create_class_slot = AsyncMock()
+        self.update_class_slot_capacity = AsyncMock(return_value=True)
+        self.close_class_slot = AsyncMock(return_value=True)
+        self.book_class_slot = AsyncMock()
+        self.list_admin_ids = AsyncMock(return_value=[])
+        self.create_support_message = AsyncMock(return_value=(1, True))
+        self.reply_support_ticket = AsyncMock(return_value=1001)
+        self.list_open_support_tickets = AsyncMock(return_value=[])
+        self.close_support_ticket = AsyncMock(return_value=1001)
         self.list_pending_requests = AsyncMock(return_value=[self.request])
         self.complete_request = AsyncMock(return_value=True)
         self.record_activity = AsyncMock()

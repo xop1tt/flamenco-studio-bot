@@ -34,6 +34,10 @@ WHERE telegram_id = :'target_telegram_id'::BIGINT;
 SELECT
     (SELECT COUNT(*) FROM lesson_requests
      WHERE telegram_id = :'target_telegram_id'::BIGINT) AS requests,
+    (SELECT COUNT(*) FROM lesson_bookings
+     WHERE telegram_id = :'target_telegram_id'::BIGINT) AS class_bookings,
+    (SELECT COUNT(*) FROM support_tickets
+     WHERE telegram_id = :'target_telegram_id'::BIGINT) AS support_tickets,
     (SELECT COUNT(*) FROM lesson_payment_attempts
      WHERE telegram_id = :'target_telegram_id'::BIGINT) AS payment_attempts,
     (SELECT COUNT(*) FROM lesson_payments
@@ -61,6 +65,10 @@ COMMIT;
 Заявки обрабатываются отдельно: сначала закройте заявку после фактического
 завершения работы с ней, затем удаляйте её вручную только при отсутствии спора
 или обязательного срока хранения. Бот не выполняет периодическую очистку.
+Обращения поддержки также хранятся без автоматического срока удаления; оцените
+необходимость хранения их текста перед удалением профиля. Удаление профиля
+каскадно удаляет его записи на занятия, тикеты поддержки и сообщения этих
+тикетов. Не экспортируйте обращения в обычные логи или незашифрованные архивы.
 
 ## Резервное копирование и восстановление
 

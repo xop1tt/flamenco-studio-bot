@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from .logging_utils import RetentionRotatingFileHandler
-from .paths import PROJECT_ROOT
+from .paths import get_log_directory
 
 
 def create_admin_actions_logger(
@@ -13,7 +13,7 @@ def create_admin_actions_logger(
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    target_directory = log_directory or PROJECT_ROOT / "logs"
+    target_directory = log_directory or get_log_directory()
     target_directory.mkdir(parents=True, exist_ok=True)
     target_file = (target_directory / "admin_actions_log").resolve()
     if not any(

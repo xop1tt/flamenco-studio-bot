@@ -9,7 +9,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
 from .logging_utils import RetentionRotatingFileHandler
-from .paths import PROJECT_ROOT
+from .paths import get_log_directory
 
 
 HandlerType = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
@@ -126,7 +126,7 @@ class UpdateLoggingMiddleware(BaseMiddleware):
 
 
 def configure_logging(log_directory: Optional[Path] = None) -> logging.Logger:
-    directory = log_directory or PROJECT_ROOT / "logs"
+    directory = log_directory or get_log_directory()
     directory.mkdir(parents=True, exist_ok=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)

@@ -197,7 +197,10 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
             if "CREATE TABLE IF NOT EXISTS bot_users" in query
         ]
         self.assertEqual(len(migration_calls), 1)
-        self.assertEqual(self.pool.connection.applied_migrations, {"001", "002", "003"})
+        self.assertEqual(
+            self.pool.connection.applied_migrations,
+            {"001", "002", "003", "004"},
+        )
         await self.repository.close()
 
     async def test_schema_protects_profile_identity_and_request_states(self):

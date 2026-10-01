@@ -1,0 +1,31 @@
+services:
+  bot:
+    build:
+      context: .
+    image: flamenco-studio-bot:local
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENV: production
+      DATABASE_SSL_MODE: verify-full
+      BOT_LOG_DIR: /var/log/flamenco
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    volumes:
+      - bot_logs:/var/log/flamenco
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  bot_logs:

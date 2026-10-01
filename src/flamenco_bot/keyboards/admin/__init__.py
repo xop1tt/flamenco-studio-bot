@@ -14,6 +14,8 @@ BOT_RESTART_CONFIRM = "✅ Подтвердить перезапуск"
 BOT_RESTART_CANCEL = "↩️ Не перезапускать"
 BOT_SCHEDULE_RESTART = "🕒 Запланировать перезапуск"
 BOT_CANCEL_SCHEDULED_RESTART = "❌ Отменить запланированный перезапуск"
+CLASS_SLOTS = "🗓 Слоты занятий"
+SUPPORT_TICKETS = "📨 Обращения поддержки"
 
 
 def admin_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -21,6 +23,8 @@ def admin_menu_keyboard() -> ReplyKeyboardMarkup:
         [ADMIN_SEARCH],
         [ADMIN_EDIT_NAME],
         [ADMIN_EDIT_PHONE],
+        [CLASS_SLOTS],
+        [SUPPORT_TICKETS],
         [MAIN_MENU],
     )
 

@@ -13,13 +13,14 @@ LESSONS_MENU = "💃 Запись на занятия"
 BOOK_CLASS = "🗓️ Записаться на занятие"
 BUY_LESSONS = "💳 Покупка занятий"
 SCHEDULE = "📅 Расписание"
+CONTACT_SUPPORT = "🆘 Обратиться в поддержку"
 BACK_TO_LESSONS = "⬅️ Назад к занятиям"
 BACK_TO_CLASSES = "⬅️ Назад к выбору занятия"
 BACK_TO_PURCHASES = "⬅️ Назад к выбору пакета"
 
 
 def main_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
-    rows = [[ACCOUNT_MENU], [LESSONS_MENU]]
+    rows = [[ACCOUNT_MENU], [LESSONS_MENU], [CONTACT_SUPPORT]]
     if is_admin:
         rows.append([ADMIN_MENU])
         rows.append([BOT_MANAGEMENT_MENU])
@@ -100,6 +101,7 @@ __all__ = [
     "BOOK_CLASS",
     "BUY_LESSONS",
     "CANCEL",
+    "CONTACT_SUPPORT",
     "LESSONS_MENU",
     "MAIN_MENU",
     "SCHEDULE",

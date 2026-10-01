@@ -70,6 +70,24 @@ class SecurityMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(middleware._events), 1)
         self.assertIn(4, middleware._events)
 
+    async def test_global_event_limit_drops_bursts(self):
+        current_time = [0.0]
+        middleware = SecurityMiddleware(
+            max_global_events=2,
+            global_window_seconds=1,
+            clock=lambda: current_time[0],
+        )
+        handler = AsyncMock(return_value="handled")
+        first = cast(TelegramObject, FakeMessage(telegram_id=1))
+        second = cast(TelegramObject, FakeMessage(telegram_id=2))
+        third = cast(TelegramObject, FakeMessage(telegram_id=3))
+
+        self.assertEqual(await middleware(handler, first, {}), "handled")
+        self.assertEqual(await middleware(handler, second, {}), "handled")
+        self.assertIsNone(await middleware(handler, third, {}))
+        current_time[0] = 1
+        self.assertEqual(await middleware(handler, third, {}), "handled")
+
     def test_invalid_rate_limit_configuration_is_rejected(self):
         with self.assertRaises(ValueError):
             SecurityMiddleware(max_events=0)

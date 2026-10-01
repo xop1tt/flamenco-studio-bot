@@ -42,7 +42,14 @@ class KeyboardTests(unittest.TestCase):
         labels = {
             button.text for row in main_menu_keyboard().keyboard for button in row
         }
-        self.assertEqual(labels, {"👤 Учетная запись", "💃 Запись на занятия"})
+        self.assertEqual(
+            labels,
+            {
+                "👤 Учетная запись",
+                "💃 Запись на занятия",
+                "🆘 Обратиться в поддержку",
+            },
+        )
 
     def test_admin_menu_button_is_only_in_admin_main_menu(self):
         admin_labels = {
@@ -108,12 +115,8 @@ class KeyboardTests(unittest.TestCase):
             account_names.index("save_phone"),
         )
         self.assertLess(
-            lesson_names.index("select_purchase"),
-            lesson_names.index("submit_booking_request"),
-        )
-        self.assertLess(
-            lesson_names.index("back_to_classes"),
-            lesson_names.index("submit_booking_request"),
+            lesson_names.index("select_class"),
+            lesson_names.index("submit_purchase_request"),
         )
         self.assertLess(
             lesson_names.index("back_to_purchase_menu"),

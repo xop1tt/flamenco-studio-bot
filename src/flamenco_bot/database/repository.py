@@ -16,6 +16,26 @@ import asyncpg
 logger = logging.getLogger("bot.database")
 MIGRATIONS_DIRECTORY = Path(__file__).resolve().parent / "migrations"
 MIGRATION_LOCK_ID = 715_203_401
+CLASS_KEYS = {"beginner", "intermediate", "individual"}
+MAX_SUPPORT_MESSAGE_LENGTH = 2000
+
+
+def _validate_slot(class_key: str, starts_at: datetime, capacity: int) -> None:
+    if class_key not in CLASS_KEYS:
+        raise ValueError("Неизвестный формат занятия")
+    if starts_at.tzinfo is None or starts_at.utcoffset() is None:
+        raise ValueError("Время слота должно содержать часовой пояс")
+    if starts_at <= datetime.now(timezone.utc):
+        raise ValueError("Слот должен быть запланирован в будущем")
+    if not 1 <= capacity <= 100:
+        raise ValueError("Вместимость слота должна быть от 1 до 100")
+
+
+def _validate_support_body(body: str) -> str:
+    normalized = body.strip()
+    if not normalized or len(normalized) > MAX_SUPPORT_MESSAGE_LENGTH:
+        raise ValueError("Сообщение должно содержать от 1 до 2000 символов")
+    return normalized
 
 
 class DatabaseUnavailableError(ConnectionError):
@@ -75,6 +95,63 @@ class LessonRequest:
             status=record["status"],
             created_at=record["created_at"],
         )
+
+
+@dataclass(frozen=True)
+class ClassSlot:
+    id: int
+    class_key: str
+    starts_at: datetime
+    capacity: int
+    booked_count: int
+    status: str = "open"
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.capacity - self.booked_count)
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "ClassSlot":
+        return cls(
+            id=record["id"],
+            class_key=record["class_key"],
+            starts_at=record["starts_at"],
+            capacity=record["capacity"],
+            booked_count=record["booked_count"],
+            status=record["status"],
+        )
+
+
+@dataclass(frozen=True)
+class ClassBooking:
+    id: int
+    slot_id: int
+    telegram_id: int
+    starts_at: datetime
+    class_key: str
+    already_booked: bool = False
+
+
+@dataclass(frozen=True)
+class SupportTicket:
+    id: int
+    telegram_id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    last_message: str = ""
+
+
+@dataclass(frozen=True)
+class SupportMessage:
+    ticket_id: int
+    telegram_id: int
+    sender_role: str
+    body: str
+
+
+class SlotUnavailableError(RuntimeError):
+    """Raised when a class slot is closed, full, or no longer in the future."""
 
 
 @dataclass(frozen=True)
@@ -956,6 +1033,385 @@ class PostgresRepository:
             )
         return UserProfile.from_record(record) if record is not None else None
 
+    async def create_class_slot(
+        self,
+        class_key: str,
+        starts_at: datetime,
+        capacity: int,
+        admin_telegram_id: int,
+    ) -> ClassSlot:
+        _validate_slot(class_key, starts_at, capacity)
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(
+                """
+                INSERT INTO lesson_slots (class_key, starts_at, capacity, created_by)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id, class_key, starts_at, capacity, 0 AS booked_count,
+                          status
+                """,
+                class_key,
+                starts_at,
+                capacity,
+                admin_telegram_id,
+            )
+        logger.info("Created class slot id=%s class=%s", record["id"], class_key)
+        return ClassSlot.from_record(record)
+
+    async def list_class_slots(
+        self,
+        class_key: Optional[str] = None,
+        limit: int = 100,
+    ) -> Sequence[ClassSlot]:
+        if class_key is not None and class_key not in CLASS_KEYS:
+            raise ValueError("Неизвестный формат занятия")
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество слотов должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT slot.id, slot.class_key, slot.starts_at, slot.capacity,
+                       slot.status,
+                       COUNT(booking.id) FILTER (
+                           WHERE booking.status = 'confirmed'
+                       )::INTEGER AS booked_count
+                FROM lesson_slots AS slot
+                LEFT JOIN lesson_bookings AS booking ON booking.slot_id = slot.id
+                WHERE slot.starts_at > NOW()
+                  AND ($1::TEXT IS NULL OR slot.class_key = $1)
+                GROUP BY slot.id
+                ORDER BY slot.starts_at
+                LIMIT $2
+                """,
+                class_key,
+                limit,
+            )
+        return [ClassSlot.from_record(record) for record in records]
+
+    async def list_available_class_slots(
+        self,
+        class_key: str,
+        limit: int = 20,
+    ) -> Sequence[ClassSlot]:
+        if class_key not in CLASS_KEYS:
+            raise ValueError("Неизвестный формат занятия")
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество слотов должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT slot.id, slot.class_key, slot.starts_at, slot.capacity,
+                       slot.status,
+                       COUNT(booking.id) FILTER (
+                           WHERE booking.status = 'confirmed'
+                       )::INTEGER AS booked_count
+                FROM lesson_slots AS slot
+                LEFT JOIN lesson_bookings AS booking ON booking.slot_id = slot.id
+                WHERE slot.class_key = $1
+                  AND slot.status = 'open'
+                  AND slot.starts_at > NOW()
+                GROUP BY slot.id
+                HAVING COUNT(booking.id) FILTER (
+                    WHERE booking.status = 'confirmed'
+                ) < slot.capacity
+                ORDER BY slot.starts_at
+                LIMIT $2
+                """,
+                class_key,
+                limit,
+            )
+        return [ClassSlot.from_record(record) for record in records]
+
+    async def book_class_slot(
+        self,
+        slot_id: int,
+        telegram_id: int,
+    ) -> ClassBooking:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                slot = await connection.fetchrow(
+                    """
+                    SELECT id, class_key, starts_at, capacity, status
+                    FROM lesson_slots
+                    WHERE id = $1
+                    FOR UPDATE
+                    """,
+                    slot_id,
+                )
+                if (
+                    slot is None
+                    or slot["status"] != "open"
+                    or slot["starts_at"] <= datetime.now(timezone.utc)
+                ):
+                    raise SlotUnavailableError("Слот закрыт или уже недоступен")
+
+                existing = await connection.fetchrow(
+                    """
+                    SELECT id, status FROM lesson_bookings
+                    WHERE slot_id = $1 AND telegram_id = $2
+                    """,
+                    slot_id,
+                    telegram_id,
+                )
+                if existing is not None and existing["status"] == "confirmed":
+                    return ClassBooking(
+                        id=existing["id"],
+                        slot_id=slot_id,
+                        telegram_id=telegram_id,
+                        starts_at=slot["starts_at"],
+                        class_key=slot["class_key"],
+                        already_booked=True,
+                    )
+
+                booked_count = await connection.fetchval(
+                    """
+                    SELECT COUNT(*) FROM lesson_bookings
+                    WHERE slot_id = $1 AND status = 'confirmed'
+                    """,
+                    slot_id,
+                )
+                if booked_count >= slot["capacity"]:
+                    raise SlotUnavailableError("На это занятие уже нет свободных мест")
+
+                booking = await connection.fetchrow(
+                    """
+                    INSERT INTO lesson_bookings (slot_id, telegram_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (slot_id, telegram_id)
+                    DO UPDATE SET status = 'confirmed', booked_at = NOW(),
+                                  updated_at = NOW()
+                    WHERE lesson_bookings.status = 'cancelled'
+                    RETURNING id
+                    """,
+                    slot_id,
+                    telegram_id,
+                )
+                if booking is None:
+                    raise SlotUnavailableError("Не удалось подтвердить место")
+        logger.info(
+            "Confirmed class booking slot_id=%s telegram_id=%s",
+            slot_id,
+            telegram_id,
+        )
+        return ClassBooking(
+            id=booking["id"],
+            slot_id=slot_id,
+            telegram_id=telegram_id,
+            starts_at=slot["starts_at"],
+            class_key=slot["class_key"],
+        )
+
+    async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
+        if not 1 <= capacity <= 100:
+            raise ValueError("Вместимость слота должна быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                slot = await connection.fetchrow(
+                    "SELECT id FROM lesson_slots WHERE id = $1 FOR UPDATE",
+                    slot_id,
+                )
+                if slot is None:
+                    return False
+                booked_count = await connection.fetchval(
+                    """
+                    SELECT COUNT(*) FROM lesson_bookings
+                    WHERE slot_id = $1 AND status = 'confirmed'
+                    """,
+                    slot_id,
+                )
+                if capacity < booked_count:
+                    raise ValueError(
+                        "Нельзя установить вместимость ниже числа "
+                        "подтверждённых записей"
+                    )
+                await connection.execute(
+                    """
+                    UPDATE lesson_slots
+                    SET capacity = $2, updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    slot_id,
+                    capacity,
+                )
+        return True
+
+    async def close_class_slot(self, slot_id: int) -> bool:
+        async with self._pool.acquire() as connection:
+            result = await connection.execute(
+                """
+                UPDATE lesson_slots SET status = 'closed', updated_at = NOW()
+                WHERE id = $1 AND status = 'open'
+                """,
+                slot_id,
+            )
+        return result == "UPDATE 1"
+
+    async def list_admin_ids(self) -> Sequence[int]:
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                "SELECT telegram_id FROM bot_users WHERE is_admin = TRUE "
+                "ORDER BY telegram_id"
+            )
+        return [record["telegram_id"] for record in records]
+
+    async def create_support_message(
+        self,
+        telegram_id: int,
+        body: str,
+    ) -> tuple[int, bool]:
+        normalized = _validate_support_body(body)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                        hashtextextended($1::BIGINT::TEXT, 0)
+                    )
+                    """,
+                    telegram_id,
+                )
+                ticket_id = await connection.fetchval(
+                    """
+                    SELECT id FROM support_tickets
+                    WHERE telegram_id = $1 AND status = 'open'
+                    ORDER BY id DESC LIMIT 1
+                    FOR UPDATE
+                    """,
+                    telegram_id,
+                )
+                created = ticket_id is None
+                if created:
+                    ticket_id = await connection.fetchval(
+                        """
+                        INSERT INTO support_tickets (telegram_id)
+                        VALUES ($1) RETURNING id
+                        """,
+                        telegram_id,
+                    )
+                await connection.execute(
+                    """
+                    INSERT INTO support_messages (
+                        ticket_id, sender_telegram_id, sender_role, body
+                    )
+                    VALUES ($1, $2, 'user', $3)
+                    """,
+                    ticket_id,
+                    telegram_id,
+                    normalized,
+                )
+                await connection.execute(
+                    "UPDATE support_tickets SET updated_at = NOW() WHERE id = $1",
+                    ticket_id,
+                )
+        logger.info(
+            "Stored support message ticket_id=%s telegram_id=%s new_ticket=%s",
+            ticket_id,
+            telegram_id,
+            created,
+        )
+        return ticket_id, created
+
+    async def reply_support_ticket(
+        self,
+        ticket_id: int,
+        admin_telegram_id: int,
+        body: str,
+    ) -> Optional[int]:
+        normalized = _validate_support_body(body)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                ticket = await connection.fetchrow(
+                    """
+                    SELECT telegram_id FROM support_tickets
+                    WHERE id = $1 AND status = 'open'
+                    FOR UPDATE
+                    """,
+                    ticket_id,
+                )
+                if ticket is None:
+                    return None
+                await connection.execute(
+                    """
+                    INSERT INTO support_messages (
+                        ticket_id, sender_telegram_id, sender_role, body
+                    )
+                    VALUES ($1, $2, 'admin', $3)
+                    """,
+                    ticket_id,
+                    admin_telegram_id,
+                    normalized,
+                )
+                await connection.execute(
+                    "UPDATE support_tickets SET updated_at = NOW() WHERE id = $1",
+                    ticket_id,
+                )
+        return ticket["telegram_id"]
+
+    async def list_open_support_tickets(
+        self,
+        limit: int = 20,
+    ) -> Sequence[SupportTicket]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество обращений должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT ticket.id, ticket.telegram_id, ticket.status,
+                       ticket.created_at, ticket.updated_at,
+                       message.body AS last_message
+                FROM support_tickets AS ticket
+                LEFT JOIN LATERAL (
+                    SELECT body FROM support_messages
+                    WHERE ticket_id = ticket.id
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                ) AS message ON TRUE
+                WHERE ticket.status = 'open'
+                ORDER BY ticket.updated_at DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+        return [
+            SupportTicket(
+                id=record["id"],
+                telegram_id=record["telegram_id"],
+                status=record["status"],
+                created_at=record["created_at"],
+                updated_at=record["updated_at"],
+                last_message=record["last_message"] or "",
+            )
+            for record in records
+        ]
+
+    async def close_support_ticket(
+        self,
+        ticket_id: int,
+        admin_telegram_id: int,
+    ) -> Optional[int]:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                ticket = await connection.fetchrow(
+                    """
+                    UPDATE support_tickets
+                    SET status = 'closed', updated_at = NOW()
+                    WHERE id = $1 AND status = 'open'
+                    RETURNING telegram_id
+                    """,
+                    ticket_id,
+                )
+                if ticket is None:
+                    return None
+                await connection.execute(
+                    """
+                    INSERT INTO support_messages (
+                        ticket_id, sender_telegram_id, sender_role, body
+                    )
+                    VALUES ($1, $2, 'admin', 'Обращение закрыто.')
+                    """,
+                    ticket_id,
+                    admin_telegram_id,
+                )
+        return ticket["telegram_id"]
+
     async def create_lesson_request(
         self,
         telegram_id: int,
@@ -1131,10 +1587,17 @@ class InMemoryRepository:
         self._payments: Dict[int, LessonPayment] = {}
         self._payment_attempts: Dict[Tuple[int, str], LessonPaymentAttempt] = {}
         self._credit_ledger: list[Tuple[int, int, str, Optional[int]]] = []
+        self._class_slots: Dict[int, ClassSlot] = {}
+        self._class_bookings: Dict[Tuple[int, int], ClassBooking] = {}
+        self._support_tickets: Dict[int, SupportTicket] = {}
+        self._support_messages: Dict[int, list[SupportMessage]] = {}
         self._last_seen: Dict[int, datetime] = {}
         self._scheduled_restart_at: Optional[datetime] = None
         self._next_request_id = 1
         self._next_payment_id = 1
+        self._next_slot_id = 1
+        self._next_booking_id = 1
+        self._next_support_ticket_id = 1
 
     async def initialize(self) -> None:
         logger.warning("Using in-memory storage; data will be lost at shutdown")
@@ -1572,6 +2035,270 @@ class InMemoryRepository:
 
     async def get_profile(self, telegram_id: int) -> Optional[UserProfile]:
         return self._profiles.get(telegram_id)
+
+    async def create_class_slot(
+        self,
+        class_key: str,
+        starts_at: datetime,
+        capacity: int,
+        admin_telegram_id: int,
+    ) -> ClassSlot:
+        _validate_slot(class_key, starts_at, capacity)
+        slot = ClassSlot(
+            id=self._next_slot_id,
+            class_key=class_key,
+            starts_at=starts_at,
+            capacity=capacity,
+            booked_count=0,
+        )
+        self._class_slots[slot.id] = slot
+        self._next_slot_id += 1
+        logger.info(
+            "Created in-memory class slot id=%s admin_id=%s",
+            slot.id,
+            admin_telegram_id,
+        )
+        return slot
+
+    async def list_class_slots(
+        self,
+        class_key: Optional[str] = None,
+        limit: int = 100,
+    ) -> Sequence[ClassSlot]:
+        if class_key is not None and class_key not in CLASS_KEYS:
+            raise ValueError("Неизвестный формат занятия")
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество слотов должно быть от 1 до 100")
+        slots = [
+            self._slot_with_count(slot)
+            for slot in self._class_slots.values()
+            if slot.starts_at > datetime.now(timezone.utc)
+            and (class_key is None or slot.class_key == class_key)
+        ]
+        return sorted(slots, key=lambda slot: slot.starts_at)[:limit]
+
+    async def list_available_class_slots(
+        self,
+        class_key: str,
+        limit: int = 20,
+    ) -> Sequence[ClassSlot]:
+        if class_key not in CLASS_KEYS:
+            raise ValueError("Неизвестный формат занятия")
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество слотов должно быть от 1 до 100")
+        slots = [
+            slot
+            for slot in await self.list_class_slots(class_key, limit=100)
+            if slot.status == "open" and slot.remaining > 0
+        ]
+        return slots[:limit]
+
+    async def book_class_slot(
+        self,
+        slot_id: int,
+        telegram_id: int,
+    ) -> ClassBooking:
+        slot = self._class_slots.get(slot_id)
+        if (
+            slot is None
+            or slot.status != "open"
+            or slot.starts_at <= datetime.now(timezone.utc)
+        ):
+            raise SlotUnavailableError("Слот закрыт или уже недоступен")
+        key = (slot_id, telegram_id)
+        previous = self._class_bookings.get(key)
+        if previous is not None and not previous.already_booked:
+            return ClassBooking(
+                id=previous.id,
+                slot_id=slot_id,
+                telegram_id=telegram_id,
+                starts_at=slot.starts_at,
+                class_key=slot.class_key,
+                already_booked=True,
+            )
+        current_slot = self._slot_with_count(slot)
+        if current_slot.booked_count >= current_slot.capacity:
+            raise SlotUnavailableError("На это занятие уже нет свободных мест")
+        booking = ClassBooking(
+            id=self._next_booking_id,
+            slot_id=slot_id,
+            telegram_id=telegram_id,
+            starts_at=slot.starts_at,
+            class_key=slot.class_key,
+        )
+        self._class_bookings[key] = booking
+        self._next_booking_id += 1
+        self._class_slots[slot_id] = ClassSlot(
+            id=slot.id,
+            class_key=slot.class_key,
+            starts_at=slot.starts_at,
+            capacity=slot.capacity,
+            booked_count=current_slot.booked_count + 1,
+            status=slot.status,
+        )
+        return booking
+
+    async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
+        if not 1 <= capacity <= 100:
+            raise ValueError("Вместимость слота должна быть от 1 до 100")
+        slot = self._class_slots.get(slot_id)
+        if slot is None:
+            return False
+        current = self._slot_with_count(slot)
+        if capacity < current.booked_count:
+            raise ValueError(
+                "Нельзя установить вместимость ниже числа подтверждённых записей"
+            )
+        self._class_slots[slot_id] = ClassSlot(
+            id=slot.id,
+            class_key=slot.class_key,
+            starts_at=slot.starts_at,
+            capacity=capacity,
+            booked_count=current.booked_count,
+            status=slot.status,
+        )
+        return True
+
+    async def close_class_slot(self, slot_id: int) -> bool:
+        slot = self._class_slots.get(slot_id)
+        if slot is None or slot.status != "open":
+            return False
+        self._class_slots[slot_id] = ClassSlot(
+            id=slot.id,
+            class_key=slot.class_key,
+            starts_at=slot.starts_at,
+            capacity=slot.capacity,
+            booked_count=slot.booked_count,
+            status="closed",
+        )
+        return True
+
+    def _slot_with_count(self, slot: ClassSlot) -> ClassSlot:
+        booked_count = sum(
+            1
+            for (booking_slot_id, _), booking in self._class_bookings.items()
+            if booking_slot_id == slot.id and not booking.already_booked
+        )
+        return ClassSlot(
+            id=slot.id,
+            class_key=slot.class_key,
+            starts_at=slot.starts_at,
+            capacity=slot.capacity,
+            booked_count=booked_count,
+            status=slot.status,
+        )
+
+    async def list_admin_ids(self) -> Sequence[int]:
+        return sorted(
+            profile.telegram_id
+            for profile in self._profiles.values()
+            if profile.is_admin
+        )
+
+    async def create_support_message(
+        self,
+        telegram_id: int,
+        body: str,
+    ) -> tuple[int, bool]:
+        normalized = _validate_support_body(body)
+        now = datetime.now(timezone.utc)
+        ticket = next(
+            (
+                item
+                for item in self._support_tickets.values()
+                if item.telegram_id == telegram_id and item.status == "open"
+            ),
+            None,
+        )
+        created = ticket is None
+        if ticket is None:
+            ticket = SupportTicket(
+                id=self._next_support_ticket_id,
+                telegram_id=telegram_id,
+                status="open",
+                created_at=now,
+                updated_at=now,
+            )
+            self._support_tickets[ticket.id] = ticket
+            self._support_messages[ticket.id] = []
+            self._next_support_ticket_id += 1
+        self._support_messages[ticket.id].append(
+            SupportMessage(ticket.id, telegram_id, "user", normalized)
+        )
+        self._support_tickets[ticket.id] = SupportTicket(
+            id=ticket.id,
+            telegram_id=ticket.telegram_id,
+            status=ticket.status,
+            created_at=ticket.created_at,
+            updated_at=now,
+        )
+        return ticket.id, created
+
+    async def reply_support_ticket(
+        self,
+        ticket_id: int,
+        admin_telegram_id: int,
+        body: str,
+    ) -> Optional[int]:
+        normalized = _validate_support_body(body)
+        ticket = self._support_tickets.get(ticket_id)
+        if ticket is None or ticket.status != "open":
+            return None
+        self._support_messages[ticket_id].append(
+            SupportMessage(ticket_id, admin_telegram_id, "admin", normalized)
+        )
+        self._support_tickets[ticket_id] = SupportTicket(
+            id=ticket.id,
+            telegram_id=ticket.telegram_id,
+            status=ticket.status,
+            created_at=ticket.created_at,
+            updated_at=datetime.now(timezone.utc),
+            last_message=normalized,
+        )
+        return ticket.telegram_id
+
+    async def list_open_support_tickets(
+        self,
+        limit: int = 20,
+    ) -> Sequence[SupportTicket]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество обращений должно быть от 1 до 100")
+        tickets = [
+            SupportTicket(
+                id=ticket.id,
+                telegram_id=ticket.telegram_id,
+                status=ticket.status,
+                created_at=ticket.created_at,
+                updated_at=ticket.updated_at,
+                last_message=(
+                    self._support_messages[ticket.id][-1].body
+                    if self._support_messages[ticket.id]
+                    else ""
+                ),
+            )
+            for ticket in self._support_tickets.values()
+            if ticket.status == "open"
+        ]
+        tickets.sort(key=lambda ticket: ticket.updated_at, reverse=True)
+        return tickets[:limit]
+
+    async def close_support_ticket(
+        self,
+        ticket_id: int,
+        admin_telegram_id: int,
+    ) -> Optional[int]:
+        _ = admin_telegram_id
+        ticket = self._support_tickets.get(ticket_id)
+        if ticket is None or ticket.status != "open":
+            return None
+        self._support_tickets[ticket_id] = SupportTicket(
+            id=ticket.id,
+            telegram_id=ticket.telegram_id,
+            status="closed",
+            created_at=ticket.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return ticket.telegram_id
 
     async def create_lesson_request(
         self,

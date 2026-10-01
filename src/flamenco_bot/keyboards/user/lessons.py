@@ -4,6 +4,7 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -18,7 +19,6 @@ from . import (
     BACK_TO_PURCHASES,
     CANCEL,
     MAIN_MENU,
-    booking_input_keyboard,
     class_menu_keyboard,
     lessons_menu_keyboard,
     main_menu_keyboard,
@@ -28,17 +28,31 @@ from . import (
 from .navigation import cancel_current_action
 from .main_menu import ensure_profile
 from ...handlers.states import LessonForm
-from ...database.repository import PaymentAttemptUnresolved
+from ...database.repository import PaymentAttemptUnresolved, SlotUnavailableError
 from ...payments import PaymentProviderError, PURCHASE_OPTIONS, YooKassaClient
+from ...class_catalog import CLASS_KEYS_BY_LABEL, CLASS_LABELS
 
 
 logger = logging.getLogger("bot.handlers.lessons")
 router = Router(name="lessons_keyboard")
-CLASS_CHOICES = {
-    "Фламенко для начинающих",
-    "Продолжающая группа",
-    "Индивидуальное занятие",
-}
+CLASS_CHOICES = set(CLASS_KEYS_BY_LABEL)
+
+
+def class_slots_keyboard(class_key: str, slots: Any) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="{} (свободно {})".format(
+                        slot.starts_at.strftime("%d.%m.%Y %H:%M"),
+                        slot.remaining,
+                    ),
+                    callback_data="book:{}:{}".format(class_key, slot.id),
+                )
+            ]
+            for slot in slots
+        ]
+    )
 
 
 @router.message(F.text == BOOK_CLASS)
@@ -56,18 +70,120 @@ async def choose_class(message: Message, state: FSMContext) -> None:
 
 
 @router.message(F.text.in_(CLASS_CHOICES))
-async def select_class(message: Message, state: FSMContext) -> None:
-    await state.update_data(class_name=message.text)
-    await state.set_state(LessonForm.waiting_for_booking_time)
-    await message.answer(
-        "Напишите удобные дни и время для этого занятия. "
-        "Это будет пожелание, а не подтвержденная запись.",
-        reply_markup=booking_input_keyboard(),
-    )
+async def select_class(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
+    label = message.text
+    if label is None:
+        raise ValueError("Для выбора формата требуется текстовое сообщение")
+    class_key = CLASS_KEYS_BY_LABEL[label]
+    slots = await repository.list_available_class_slots(class_key)
+    await state.clear()
+    if not slots:
+        await message.answer(
+            "Сейчас нет свободных слотов для формата «{}». "
+            "Попробуйте позже или обратитесь в поддержку.".format(
+                CLASS_LABELS[class_key]
+            ),
+            reply_markup=lessons_menu_keyboard(),
+        )
+    else:
+        await message.answer(
+            "Выберите свободное время для занятия «{}». "
+            "Запись подтвердится сразу после выбора.".format(CLASS_LABELS[class_key]),
+            reply_markup=class_slots_keyboard(class_key, slots),
+        )
     logger.info(
-        "Selected class telegram_id=%s class_name=%s",
+        "Selected class telegram_id=%s class_key=%s available_slots=%s",
         message.from_user.id if message.from_user else None,
-        message.text,
+        class_key,
+        len(slots),
+    )
+
+
+@router.callback_query(F.data.startswith("book:"))
+async def book_class_slot(
+    callback: CallbackQuery,
+    repository: Any,
+) -> None:
+    parts = (callback.data or "").split(":")
+    sender = callback.from_user
+    if (
+        len(parts) != 3
+        or parts[1] not in CLASS_LABELS
+        or not parts[2].isdigit()
+        or sender is None
+    ):
+        await callback.answer("Некорректная запись.", show_alert=True)
+        return
+    bot = callback.bot
+    if bot is None:
+        raise RuntimeError("Telegram bot is unavailable for callback handling")
+    slot_id = int(parts[2])
+    await repository.get_or_create_profile(
+        telegram_id=sender.id,
+        user_name=sender.full_name.strip() or "Участник студии",
+        is_admin=False,
+    )
+    try:
+        booking = await repository.book_class_slot(slot_id, sender.id)
+    except SlotUnavailableError:
+        await callback.answer(
+            "Это место уже заняли или запись закрыта. Обновите список слотов.",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer(
+        "Вы уже записаны." if booking.already_booked else "Место подтверждено!"
+    )
+    await bot.send_message(
+        sender.id,
+        "Вы записаны на «{}» {}.".format(
+            CLASS_LABELS[booking.class_key],
+            booking.starts_at.strftime("%d.%m.%Y в %H:%M"),
+        ),
+        reply_markup=lessons_menu_keyboard(),
+    )
+    if not booking.already_booked:
+        admin_ids = await repository.list_admin_ids()
+        delivered_admins = 0
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    "Новая запись №{}: {} — {}, участник {} (ID {}).".format(
+                        booking.id,
+                        CLASS_LABELS[booking.class_key],
+                        booking.starts_at.strftime("%d.%m.%Y в %H:%M %Z"),
+                        sender.full_name,
+                        sender.id,
+                    ),
+                )
+                delivered_admins += 1
+            except TelegramAPIError as error:
+                logger.warning(
+                    "Class booking notification failed booking_id=%s "
+                    "admin_id=%s error_type=%s",
+                    booking.id,
+                    admin_id,
+                    type(error).__name__,
+                )
+        if not admin_ids or delivered_admins < len(admin_ids):
+            logger.error(
+                "Class booking confirmed without notifying all admins "
+                "booking_id=%s recipients=%s delivered=%s",
+                booking.id,
+                len(admin_ids),
+                delivered_admins,
+            )
+    logger.info(
+        "Class booking confirmed slot_id=%s telegram_id=%s duplicate=%s",
+        slot_id,
+        sender.id,
+        booking.already_booked,
     )
 
 
@@ -76,7 +192,10 @@ async def select_purchase(
     message: Message,
     state: FSMContext,
 ) -> None:
-    package = PURCHASE_OPTIONS[message.text]
+    label = message.text
+    if label is None:
+        raise ValueError("Для выбора пакета требуется текстовое сообщение")
+    package = PURCHASE_OPTIONS[label]
     await state.update_data(
         package_key=package.key,
         package_title=package.title,
@@ -111,45 +230,6 @@ async def back_to_purchase_menu(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Выберите формат занятий.",
         reply_markup=purchase_menu_keyboard(),
-    )
-
-
-@router.message(LessonForm.waiting_for_booking_time)
-async def submit_booking_request(
-    message: Message,
-    state: FSMContext,
-    repository: Any,
-) -> None:
-    preferred_time = (message.text or "").strip()
-    if not preferred_time or len(preferred_time) > 300:
-        logger.warning(
-            "Rejected booking request telegram_id=%s reason=invalid_length length=%s",
-            message.from_user.id if message.from_user else None,
-            len(preferred_time),
-        )
-        await message.answer("Укажите пожелания по времени (до 300 символов).")
-        return
-    if message.from_user is None:
-        raise ValueError("У сообщения отсутствует Telegram-пользователь")
-
-    form_data = await state.get_data()
-    class_name = form_data.get("class_name", "Занятие фламенко")
-    await ensure_profile(message, repository)
-    request = await repository.create_lesson_request(
-        telegram_id=message.from_user.id,
-        kind="booking",
-        details="{}; пожелания по времени: {}".format(class_name, preferred_time),
-    )
-    await state.clear()
-    await message.answer(
-        "Заявка №{} сохранена. Запись пока не подтверждена: администратору "
-        "нужно проверить заявку и подтвердить свободное время.".format(request.id),
-        reply_markup=lessons_menu_keyboard(),
-    )
-    logger.info(
-        "Booking request submitted telegram_id=%s request_id=%s",
-        message.from_user.id,
-        request.id,
     )
 
 

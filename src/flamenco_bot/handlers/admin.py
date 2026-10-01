@@ -35,6 +35,9 @@ from ..keyboards.common import CANCEL, MAIN_MENU
 from ..keyboards.user import main_menu_keyboard
 from ..runtime.runtime_resources import get_process_resources
 from ..payments import PaymentProviderError, YooKassaClient
+from ..class_catalog import CLASS_LABELS
+from ..database.repository import CLASS_KEYS
+from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
 
 
 logger = logging.getLogger("bot.handlers.admin")
@@ -59,6 +62,176 @@ async def _deny_non_admin(message: Message, repository: Any) -> bool:
         message.from_user.id if message.from_user else None,
     )
     return True
+
+
+async def _show_class_slots(message: Message, repository: Any) -> None:
+    slots = await repository.list_class_slots(limit=30)
+    if not slots:
+        await message.answer(
+            "Будущих слотов пока нет.\n"
+            "Создать: /slot_add beginner 2030-10-02T18:00+04:00 8",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    lines = [
+        "Ближайшие слоты (максимум 30; ID | формат | дата/время | "
+        "занято/вместимость | статус):"
+    ]
+    lines.extend(
+        "{} | {} | {} | {}/{} | {}".format(
+            slot.id,
+            CLASS_LABELS[slot.class_key],
+            slot.starts_at.strftime("%d.%m.%Y %H:%M %Z"),
+            slot.booked_count,
+            slot.capacity,
+            "открыт" if slot.status == "open" else "закрыт",
+        )
+        for slot in slots
+    )
+    lines.extend(
+        [
+            "",
+            "Создать: /slot_add beginner 2030-10-02T18:00+04:00 8",
+            "Вместимость: /slot_capacity ID ЧИСЛО",
+            "Закрыть: /slot_close ID",
+        ]
+    )
+    await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
+
+
+@router.message(F.text == CLASS_SLOTS)
+@router.message(Command("slots"))
+async def show_class_slots(message: Message, repository: Any) -> None:
+    if await _deny_non_admin(message, repository):
+        return
+    await _show_class_slots(message, repository)
+
+
+@router.message(Command("slot_add"))
+async def add_class_slot(message: Message, repository: Any) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await _deny_non_admin(message, repository)
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 4:
+        await message.answer(
+            "Формат: /slot_add beginner 2030-10-02T18:00+04:00 8\n"
+            "Ключ занятия: beginner, intermediate или individual. "
+            "Время указывайте с часовым поясом."
+        )
+        return
+    class_key = parts[1]
+    if class_key not in CLASS_KEYS:
+        await message.answer("Формат: beginner, intermediate или individual.")
+        return
+    try:
+        starts_at = datetime.fromisoformat(parts[2])
+        capacity = int(parts[3])
+        if starts_at.tzinfo is None or starts_at.utcoffset() is None:
+            raise ValueError("Укажите часовой пояс, например +04:00")
+        slot = await repository.create_class_slot(
+            class_key,
+            starts_at,
+            capacity,
+            admin_id,
+        )
+    except ValueError as error:
+        await message.answer(
+            "Не удалось создать слот: {}. Пример: "
+            "/slot_add beginner 2030-10-02T18:00+04:00 8".format(error)
+        )
+        return
+    await message.answer(
+        "Слот №{} создан: «{}», {} (вместимость {}).".format(
+            slot.id,
+            CLASS_LABELS[slot.class_key],
+            slot.starts_at.strftime("%d.%m.%Y %H:%M %Z"),
+            slot.capacity,
+        ),
+        reply_markup=admin_menu_keyboard(),
+    )
+    actions_logger.info(
+        "action=create_class_slot admin_id=%s slot_id=%s class_key=%s capacity=%s",
+        admin_id,
+        slot.id,
+        class_key,
+        capacity,
+    )
+
+
+@router.message(Command("slot_capacity"))
+async def change_class_slot_capacity(message: Message, repository: Any) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await _deny_non_admin(message, repository)
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+        await message.answer("Формат: /slot_capacity ID ЧИСЛО")
+        return
+    slot_id, capacity = int(parts[1]), int(parts[2])
+    try:
+        updated = await repository.update_class_slot_capacity(slot_id, capacity)
+    except ValueError as error:
+        await message.answer("Не удалось изменить вместимость: {}.".format(error))
+        return
+    if not updated:
+        await message.answer("Слот с таким ID не найден.")
+        return
+    await message.answer("Вместимость слота №{} обновлена.".format(slot_id))
+    actions_logger.info(
+        "action=change_class_slot_capacity admin_id=%s slot_id=%s capacity=%s",
+        admin_id,
+        slot_id,
+        capacity,
+    )
+
+
+@router.message(Command("slot_close"))
+async def close_class_slot(message: Message, repository: Any) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await _deny_non_admin(message, repository)
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Формат: /slot_close ID")
+        return
+    slot_id = int(parts[1])
+    if not await repository.close_class_slot(slot_id):
+        await message.answer("Открытый слот с таким ID не найден.")
+        return
+    await message.answer("Слот №{} закрыт для новых записей.".format(slot_id))
+    actions_logger.info(
+        "action=close_class_slot admin_id=%s slot_id=%s",
+        admin_id,
+        slot_id,
+    )
+
+
+@router.message(F.text == SUPPORT_TICKETS)
+async def show_support_tickets(message: Message, repository: Any) -> None:
+    if await _deny_non_admin(message, repository):
+        return
+    tickets = await repository.list_open_support_tickets(limit=20)
+    lines = [
+        "Открытых обращений нет."
+        if not tickets
+        else (
+            "Открытые обращения (ответ: /support_reply ID текст; "
+            "закрыть: /support_close ID):"
+        )
+    ]
+    lines.extend(
+        "№{} | пользователь {} | {}".format(
+            ticket.id,
+            ticket.telegram_id,
+            ticket.last_message.replace("\n", " ")[:120],
+        )
+        for ticket in tickets
+    )
+    await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
 
 
 def _parse_telegram_id(value: Optional[str]) -> Optional[int]:
