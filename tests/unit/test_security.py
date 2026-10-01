@@ -1,0 +1,75 @@
+import unittest
+from typing import cast
+from unittest.mock import AsyncMock
+
+from aiogram.types import TelegramObject
+
+from flamenco_bot.runtime.security import SecurityMiddleware
+from tests.support import FakeMessage
+
+
+class SecurityMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_messages_pass_within_rate_limit(self):
+        middleware = SecurityMiddleware(max_events=2, window_seconds=5)
+        handler = AsyncMock(return_value="handled")
+        message = FakeMessage()
+
+        event = cast(TelegramObject, message)
+        self.assertEqual(await middleware(handler, event, {}), "handled")
+        self.assertEqual(await middleware(handler, event, {}), "handled")
+        handler.assert_awaited_with(message, {})
+
+    async def test_excess_messages_are_dropped_and_warning_is_rate_limited(self):
+        middleware = SecurityMiddleware(max_events=1, window_seconds=5)
+        handler = AsyncMock()
+        message = FakeMessage()
+
+        with self.assertLogs("bot.security", level="WARNING") as logs:
+            event = cast(TelegramObject, message)
+            await middleware(handler, event, {})
+            self.assertIsNone(await middleware(handler, event, {}))
+            self.assertIsNone(await middleware(handler, event, {}))
+
+        handler.assert_awaited_once()
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("telegram_id=1001", logs.output[0])
+
+    async def test_non_private_messages_are_dropped(self):
+        middleware = SecurityMiddleware()
+        handler = AsyncMock()
+        message = FakeMessage()
+        message.chat.type = "group"
+
+        self.assertIsNone(await middleware(handler, cast(TelegramObject, message), {}))
+        handler.assert_not_awaited()
+
+    async def test_user_tracking_is_bounded_and_expired_entries_are_removed(self):
+        current_time = [0.0]
+        middleware = SecurityMiddleware(
+            max_events=2,
+            window_seconds=5,
+            max_tracked_users=2,
+            clock=lambda: current_time[0],
+        )
+        handler = AsyncMock()
+
+        for user_id in (1, 2, 3):
+            await middleware(
+                handler,
+                cast(TelegramObject, FakeMessage(telegram_id=user_id)),
+                {},
+            )
+        self.assertEqual(len(middleware._events), 2)
+
+        current_time[0] = 6.0
+        await middleware(
+            handler,
+            cast(TelegramObject, FakeMessage(telegram_id=4)),
+            {},
+        )
+        self.assertEqual(len(middleware._events), 1)
+        self.assertIn(4, middleware._events)
+
+    def test_invalid_rate_limit_configuration_is_rejected(self):
+        with self.assertRaises(ValueError):
+            SecurityMiddleware(max_events=0)

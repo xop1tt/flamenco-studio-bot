@@ -1,0 +1,297 @@
+import logging
+import os
+import stat
+import tempfile
+import time
+import unittest
+from contextlib import redirect_stderr
+from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock
+
+from aiogram import Bot
+from aiogram.methods import Response, SendMessage, TelegramMethod
+from aiogram.types import Chat, Message, TelegramObject, Update, User
+
+from flamenco_bot.runtime.answers_logging import AnswersLogMiddleware, create_answers_logger
+from flamenco_bot.runtime.admin_actions_logging import create_admin_actions_logger
+from flamenco_bot.runtime.bot_logging import (
+    UpdateLoggingMiddleware,
+    UpdateMetrics,
+    configure_logging,
+)
+from flamenco_bot.runtime.logging_utils import RetentionRotatingFileHandler
+from flamenco_bot.runtime.monitoring import monitor_health
+
+
+class LoggingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_log_files_are_private_and_expired_backups_are_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "bot.log"
+            expired_backup = Path(str(log_path) + ".1")
+            expired_backup.write_text("expired", encoding="utf-8")
+            expired_time = time.time() - 31 * 24 * 60 * 60
+            os.utime(expired_backup, (expired_time, expired_time))
+
+            handler = RetentionRotatingFileHandler(
+                log_path,
+                encoding="utf-8",
+                maxBytes=100,
+                backupCount=5,
+            )
+            try:
+                self.assertFalse(expired_backup.exists())
+                self.assertEqual(
+                    stat.S_IMODE(log_path.stat().st_mode),
+                    0o600,
+                )
+            finally:
+                handler.close()
+
+    async def test_answer_logger_does_not_write_message_content_or_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "answers_log"
+            logger = logging.Logger("test.answers")
+            handler = logging.FileHandler(log_path, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(handler)
+            middleware = AnswersLogMiddleware(logger)
+
+            async def successful_request(
+                bot: Bot,
+                method: TelegramMethod[Any],
+            ) -> Response[Any]:
+                _ = (bot, method)
+                return Response[Any](ok=True, result=True)
+
+            bot = Bot(token="123456:" + "x" * 35)
+            result = await middleware(
+                successful_request,
+                bot,
+                SendMessage(
+                    chat_id=1001,
+                    text="Ваш номер +7 999 123-45-67",
+                ),
+            )
+            await middleware(
+                successful_request,
+                bot,
+                SendMessage(
+                    chat_id=1001,
+                    text=(
+                        "Одноразовый код для подтверждения действия "
+                        "в этом Telegram-чате: 123456."
+                    ),
+                ),
+            )
+            handler.flush()
+            contents = log_path.read_text(encoding="utf-8")
+            self.assertTrue(result.ok)
+            self.assertNotIn("+7 999 123-45-67", contents)
+            self.assertNotIn("8373364453", contents)
+            self.assertNotIn("123-45-67", contents)
+            self.assertNotIn("123456", contents)
+            self.assertIn("method=sendMessage", contents)
+            self.assertIn("payload_chars=", contents)
+            handler.close()
+            await bot.session.close()
+
+    async def test_update_logger_records_success_and_propagates_errors(self):
+        logger = logging.Logger("test.updates")
+        records = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        logger.addHandler(CaptureHandler())
+        middleware = UpdateLoggingMiddleware(logger)
+        event = Update(
+            update_id=55,
+            message=Message(
+                message_id=1,
+                date=datetime.now(timezone.utc),
+                chat=Chat(id=55, type="private"),
+                from_user=User(id=55, is_bot=False, first_name="Test"),
+            ),
+        )
+        handler = AsyncMock(return_value="ok")
+
+        self.assertEqual(await middleware(handler, event, {}), "ok")
+        handler.assert_awaited_once_with(event, {})
+        self.assertTrue(any("telegram_id=55" in entry for entry in records))
+
+    async def test_update_logger_records_activity_for_registered_user(self):
+        repository = SimpleNamespace(record_activity=AsyncMock())
+        middleware = UpdateLoggingMiddleware(logging.Logger("test.activity"))
+        event = Message(
+            message_id=1,
+            date=datetime.now(timezone.utc),
+            chat=Chat(id=55, type="private"),
+            from_user=User(id=55, is_bot=False, first_name="Test"),
+        )
+
+        await middleware(AsyncMock(return_value=None), event, {"repository": repository})
+
+        repository.record_activity.assert_awaited_once_with(55)
+
+        async def failing_handler(
+            event: TelegramObject,
+            data: dict[str, Any],
+        ) -> Any:
+            _ = (event, data)
+            raise RuntimeError("failed")
+
+        with self.assertRaises(RuntimeError):
+            await middleware(failing_handler, event, {})
+
+    async def test_update_error_is_counted_without_requesting_process_restart(self):
+        logger = logging.Logger("test.updates.failed")
+        metrics = UpdateMetrics()
+        middleware = UpdateLoggingMiddleware(logger, metrics=metrics)
+        event = Update(
+            update_id=56,
+            message=Message(
+                message_id=1,
+                date=datetime.now(timezone.utc),
+                chat=Chat(id=56, type="private"),
+                from_user=User(id=56, is_bot=False, first_name="Test"),
+            ),
+        )
+
+        async def failing_handler(
+            event: TelegramObject,
+            data: dict[str, Any],
+        ) -> Any:
+            _ = (event, data)
+            raise RuntimeError("handler failure")
+
+        with self.assertRaisesRegex(RuntimeError, "handler failure"):
+            await middleware(failing_handler, event, {})
+        snapshot = metrics.snapshot()
+        self.assertEqual(
+            (snapshot.started, snapshot.succeeded, snapshot.failed),
+            (1, 0, 1),
+        )
+        self.assertGreaterEqual(snapshot.total_duration_ms, 0)
+
+    async def test_health_monitor_logs_update_metrics_and_database_health(self):
+        logger = logging.Logger("test.health")
+        records = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        logger.addHandler(CaptureHandler())
+        repository = AsyncMock()
+        repository.health_check.return_value = SimpleNamespace(
+            backend="postgres",
+            pool_size=4,
+            idle_connections=2,
+        )
+        metrics = UpdateMetrics()
+        metrics.record(12, failed=False)
+
+        class StopAfterOneProbe(Exception):
+            pass
+
+        sleeps = 0
+
+        async def sleep(_):
+            nonlocal sleeps
+            sleeps += 1
+            if sleeps == 2:
+                raise StopAfterOneProbe()
+
+        with self.assertRaises(StopAfterOneProbe):
+            await monitor_health(
+                repository,
+                metrics,
+                logger,
+                interval_seconds=60,
+                sleep=sleep,
+            )
+
+        repository.health_check.assert_awaited_once()
+        self.assertTrue(any("Health status=ok" in message for message in records))
+        self.assertTrue(any("pool_size=4" in message for message in records))
+        self.assertTrue(any("updates_succeeded=1" in message for message in records))
+
+    async def test_health_monitor_logs_database_probe_failure_and_keeps_running(self):
+        logger = logging.Logger("test.health.failure")
+        records = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        logger.addHandler(CaptureHandler())
+        repository = AsyncMock()
+        repository.health_check.side_effect = OSError("database unavailable")
+
+        class StopAfterOneProbe(Exception):
+            pass
+
+        sleeps = 0
+
+        async def sleep(_):
+            nonlocal sleeps
+            sleeps += 1
+            if sleeps == 2:
+                raise StopAfterOneProbe()
+
+        with self.assertRaises(StopAfterOneProbe):
+            await monitor_health(
+                repository,
+                UpdateMetrics(),
+                logger,
+                interval_seconds=60,
+                sleep=sleep,
+            )
+
+        repository.health_check.assert_awaited_once()
+        self.assertTrue(any("Health check failed" in message for message in records))
+        self.assertTrue(any("error_type=OSError" in message for message in records))
+
+    async def test_logging_config_creates_both_log_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = logging.getLogger()
+            old_handlers = root.handlers[:]
+            root.handlers.clear()
+            terminal = StringIO()
+            try:
+                with redirect_stderr(terminal):
+                    logger = configure_logging(Path(directory))
+                    logger.info("Important runtime status")
+                create_answers_logger(Path(directory))
+                self.assertTrue((Path(directory) / "bot.log").exists())
+                self.assertTrue((Path(directory) / "answers_log").exists())
+                self.assertIn("Important runtime status", terminal.getvalue())
+            finally:
+                for handler in root.handlers:
+                    handler.close()
+                root.handlers[:] = old_handlers
+
+    async def test_admin_action_logger_writes_to_separate_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logger = logging.getLogger("bot.admin_actions")
+            previous_handlers = logger.handlers[:]
+            logger = create_admin_actions_logger(Path(directory))
+            try:
+                logger.info("action=edit_name admin_id=8373364453 target_id=1001")
+                for handler in logger.handlers:
+                    handler.flush()
+                contents = (Path(directory) / "admin_actions_log").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn("action=edit_name", contents)
+                self.assertIn("admin_id=8373364453", contents)
+            finally:
+                for handler in logger.handlers[:]:
+                    if handler not in previous_handlers:
+                        logger.removeHandler(handler)
+                        handler.close()

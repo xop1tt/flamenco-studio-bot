@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$pyo
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+*.dist/
+
+# Virtual environment
+.env
+.env.local
+.env.*
+!env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AIogram logs
+*.log
+/logs/*
+!/logs/.gitkeep
+/answers_log
+/admin_actions_log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads
+media/uploads/*
+!media/uploads/.gitkeep
+
+# Downloads
+media/downloads/*
+!media/downloads/.gitkeep
+
+# Debug
+*.pkl
+*.pickle
+*.pth
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# Temp files
+*.tmp
+__pycache__/
