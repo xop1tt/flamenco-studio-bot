@@ -83,7 +83,9 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
                 "postgresql://bot@db.example.com:5432/flamenco_bot"
             )
 
-    async def test_connect_reports_refused_local_postgres_without_connection_details(self):
+    async def test_connect_reports_refused_local_postgres_without_connection_details(
+        self,
+    ):
         with patch(
             "flamenco_bot.database.repository.asyncpg.create_pool",
             new=AsyncMock(
@@ -104,7 +106,9 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "flamenco_bot.database.repository.asyncpg.create_pool",
             new=AsyncMock(
-                side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+                side_effect=socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known"
+                )
             ),
         ):
             with self.assertRaisesRegex(
@@ -181,17 +185,19 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_schema_initialize_and_pool_close(self):
         await self.repository.initialize()
         migration_calls = [
-            query for query, _ in self.pool.connection.calls
+            query
+            for query, _ in self.pool.connection.calls
             if "CREATE TABLE IF NOT EXISTS bot_users" in query
         ]
         self.assertEqual(len(migration_calls), 1)
         await self.repository.initialize()
         migration_calls = [
-            query for query, _ in self.pool.connection.calls
+            query
+            for query, _ in self.pool.connection.calls
             if "CREATE TABLE IF NOT EXISTS bot_users" in query
         ]
         self.assertEqual(len(migration_calls), 1)
-        self.assertEqual(self.pool.connection.applied_migrations, {"001", "002"})
+        self.assertEqual(self.pool.connection.applied_migrations, {"001", "002", "003"})
         await self.repository.close()
 
     async def test_schema_protects_profile_identity_and_request_states(self):
@@ -216,9 +222,7 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
             is_database_configured("postgresql://bot@db.example.com/flamenco_bot")
         )
         self.assertTrue(
-            is_database_configured(
-                "postgresql://bot@db.studio.internal/flamenco_bot"
-            )
+            is_database_configured("postgresql://bot@db.studio.internal/flamenco_bot")
         )
 
     async def test_in_memory_repository_supports_profiles_and_requests(self):
@@ -242,24 +246,139 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_in_memory_payment_adds_credits_only_once_and_tracks_activity(self):
         repository = InMemoryRepository()
         await repository.get_or_create_profile(1001, "Анна", False)
+        attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+        )
+        retry = await repository.begin_lesson_payment_attempt(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Изменённое название",
+            lessons=5,
+            amount_minor=400000,
+        )
+        self.assertEqual(retry.idempotence_key, attempt.idempotence_key)
         payment = await repository.create_lesson_payment(
             telegram_id=1001,
             package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
             lessons=4,
             amount_minor=360000,
             provider_payment_id="provider-payment",
             confirmation_url="https://pay.example.test",
+            idempotence_key=attempt.idempotence_key,
         )
 
-        self.assertTrue(
-            await repository.complete_lesson_payment(payment.id, 1001)
-        )
-        self.assertFalse(
-            await repository.complete_lesson_payment(payment.id, 1001)
-        )
+        self.assertTrue(await repository.complete_lesson_payment(payment.id, 1001))
+        self.assertFalse(await repository.complete_lesson_payment(payment.id, 1001))
         self.assertEqual(await repository.get_lesson_credits(1001), 4)
+        self.assertFalse(await repository.complete_lesson_payment(payment.id, 1001))
+        self.assertEqual(await repository.get_lesson_credits(1001), 4)
+        next_attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+        )
+        self.assertNotEqual(next_attempt.idempotence_key, attempt.idempotence_key)
         await repository.record_activity(1001)
         stats = await repository.get_user_statistics(
             datetime.now(timezone.utc) - timedelta(minutes=5)
         )
         self.assertEqual((stats.total_users, stats.online_users), (1, 1))
+
+    async def test_in_memory_refund_reserves_and_reconciles_credits_once(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        attempt = await repository.begin_lesson_payment_attempt(
+            1001, "pack_4", "Абонемент на 4 занятия", 4, 360000
+        )
+        payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+            provider_payment_id="provider-payment",
+            confirmation_url="https://pay.example.test",
+            idempotence_key=attempt.idempotence_key,
+        )
+        await repository.complete_lesson_payment(payment.id, 1001)
+
+        refund = await repository.prepare_lesson_refund(payment.id, 77, "Duplicate")
+        self.assertIsNotNone(refund)
+        self.assertEqual(await repository.get_lesson_credits(1001), 0)
+        retry = await repository.prepare_lesson_refund(payment.id, 77, "ignored")
+        self.assertEqual(retry.idempotence_key, refund.idempotence_key)
+        await repository.record_provider_refund(payment.id, "canceled-refund")
+        self.assertTrue(await repository.release_lesson_refund(payment.id))
+        self.assertEqual(await repository.get_lesson_credits(1001), 4)
+
+        refund = await repository.prepare_lesson_refund(payment.id, 77, "Retry")
+        self.assertNotEqual(refund.idempotence_key, retry.idempotence_key)
+        await repository.record_provider_refund(payment.id, "successful-refund")
+        self.assertTrue(await repository.complete_lesson_refund(payment.id))
+        self.assertFalse(await repository.complete_lesson_refund(payment.id))
+        self.assertEqual(await repository.get_lesson_credits(1001), 0)
+
+        updated = await repository.get_lesson_payment(payment.id, 1001)
+        self.assertEqual(updated.status, "refunded")
+
+    async def test_canceled_payment_allows_a_new_checkout_attempt(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        attempt = await repository.begin_lesson_payment_attempt(
+            1001, "single", "Разовое занятие", 1, 100000
+        )
+        payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="single",
+            package_title="Разовое занятие",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="provider-payment",
+            confirmation_url="https://pay.example.test",
+            idempotence_key=attempt.idempotence_key,
+        )
+        self.assertTrue(await repository.cancel_lesson_payment(payment.id, 1001))
+
+        retry = await repository.begin_lesson_payment_attempt(
+            1001, "single", "Разовое занятие", 1, 100000
+        )
+        self.assertNotEqual(retry.idempotence_key, attempt.idempotence_key)
+
+    async def test_refund_rejects_credits_already_used_by_a_booking(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        attempt = await repository.begin_lesson_payment_attempt(
+            1001, "pack_4", "Абонемент на 4 занятия", 4, 360000
+        )
+        payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+            provider_payment_id="used-credit-payment",
+            confirmation_url="https://pay.example.test",
+            idempotence_key=attempt.idempotence_key,
+        )
+        await repository.complete_lesson_payment(payment.id, 1001)
+        request = await repository.create_lesson_request(
+            1001,
+            "booking",
+            "Урок из оплаченного пакета",
+        )
+        self.assertTrue(await repository.complete_request(request.id))
+
+        with self.assertRaisesRegex(ValueError, "неиспользованных"):
+            await repository.prepare_lesson_refund(
+                payment.id,
+                77,
+                "Already used",
+            )
+        self.assertEqual(await repository.get_lesson_credits(1001), 3)

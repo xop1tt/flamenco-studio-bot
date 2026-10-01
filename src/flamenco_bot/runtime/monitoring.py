@@ -7,8 +7,7 @@ from ..database.repository import DatabaseHealth
 
 
 class HealthRepository(Protocol):
-    async def health_check(self) -> DatabaseHealth:
-        ...
+    async def health_check(self) -> DatabaseHealth: ...
 
 
 async def monitor_health(
@@ -33,14 +32,17 @@ async def monitor_health(
             logger.info(
                 "Health status=ok backend=%s pool_size=%d "
                 "pool_idle=%d updates_started=%d updates_succeeded=%d "
-                "updates_failed=%d updates_total_ms=%.2f updates_max_ms=%.2f",
+                "updates_failed=%d updates_window_seconds=%.0f "
+                "updates_avg_ms=%.2f updates_p95_ms=%.2f updates_max_ms=%.2f",
                 health.backend,
                 health.pool_size,
                 health.idle_connections,
                 updates.started,
                 updates.succeeded,
                 updates.failed,
-                updates.total_duration_ms,
+                updates.window_seconds,
+                updates.average_duration_ms,
+                updates.p95_duration_ms,
                 updates.max_duration_ms,
             )
         except Exception as error:

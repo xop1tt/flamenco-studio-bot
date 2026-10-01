@@ -83,7 +83,10 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             for call in self.bot.send_message.await_args_list:
                 self.assertEqual(call.kwargs["text"], RESTART_NOTICE)
             self.assertEqual(
-                [call.kwargs["chat_id"] for call in self.bot.send_message.await_args_list],
+                [
+                    call.kwargs["chat_id"]
+                    for call in self.bot.send_message.await_args_list
+                ],
                 [8373364453, 123456789],
             )
 
@@ -149,6 +152,28 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(controller.scheduled_restart_at)
         self.assertIsNone(controller.scheduled_restart_task)
         self.assertFalse(controller.restart_event.is_set())
+
+    async def test_scheduled_restart_persists_and_restores_without_clearing_on_close(
+        self,
+    ):
+        store = Mock()
+        store.set_scheduled_restart = AsyncMock()
+        store.clear_scheduled_restart = AsyncMock()
+        scheduled_at = datetime.now().astimezone() + timedelta(hours=1)
+        controller = self.make_controller(".", restart_store=store)
+
+        await controller.schedule_restart(scheduled_at)
+        store.set_scheduled_restart.assert_awaited_once_with(scheduled_at)
+        store.clear_scheduled_restart.reset_mock()
+        await controller.close()
+        store.clear_scheduled_restart.assert_not_awaited()
+
+        store.get_scheduled_restart = AsyncMock(return_value=scheduled_at)
+        restarted = self.make_controller(".", restart_store=store)
+        restored = await restarted.restore_scheduled_restart()
+        self.assertEqual(restored, scheduled_at)
+        self.assertEqual(restarted.scheduled_restart_at, scheduled_at)
+        await restarted.close()
 
     async def test_admin_scheduled_restart_rejects_past_time(self):
         controller = self.make_controller(".")

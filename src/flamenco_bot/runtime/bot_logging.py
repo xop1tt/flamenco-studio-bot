@@ -1,8 +1,9 @@
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Deque, Optional, Tuple
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
@@ -21,33 +22,52 @@ class UpdateMetricsSnapshot:
     failed: int
     total_duration_ms: float
     max_duration_ms: float
+    average_duration_ms: float
+    p95_duration_ms: float
+    window_seconds: float
 
 
 class UpdateMetrics:
-    def __init__(self) -> None:
-        self.started = 0
-        self.succeeded = 0
-        self.failed = 0
-        self.total_duration_ms = 0.0
-        self.max_duration_ms = 0.0
+    def __init__(
+        self,
+        window_seconds: float = 300.0,
+        max_samples: int = 1000,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if window_seconds <= 0 or max_samples < 1:
+            raise ValueError("Окно и лимит метрик должны быть положительными")
+        self.window_seconds = window_seconds
+        self.clock = clock
+        self._samples: Deque[Tuple[float, float, bool]] = deque(maxlen=max_samples)
 
     def record(self, duration_ms: float, failed: bool) -> None:
-        self.started += 1
-        if failed:
-            self.failed += 1
-        else:
-            self.succeeded += 1
-        self.total_duration_ms += duration_ms
-        self.max_duration_ms = max(self.max_duration_ms, duration_ms)
+        if duration_ms < 0:
+            raise ValueError("Длительность обновления не может быть отрицательной")
+        now = self.clock()
+        self._discard_expired(now)
+        self._samples.append((now, duration_ms, failed))
 
     def snapshot(self) -> UpdateMetricsSnapshot:
+        self._discard_expired(self.clock())
+        count = len(self._samples)
+        durations = sorted(sample[1] for sample in self._samples)
+        total_duration_ms = sum(durations)
+        p95_index = max(0, (95 * count + 99) // 100 - 1)
         return UpdateMetricsSnapshot(
-            started=self.started,
-            succeeded=self.succeeded,
-            failed=self.failed,
-            total_duration_ms=self.total_duration_ms,
-            max_duration_ms=self.max_duration_ms,
+            started=count,
+            succeeded=sum(not sample[2] for sample in self._samples),
+            failed=sum(sample[2] for sample in self._samples),
+            total_duration_ms=total_duration_ms,
+            max_duration_ms=max(durations, default=0.0),
+            average_duration_ms=total_duration_ms / count if count else 0.0,
+            p95_duration_ms=durations[p95_index] if durations else 0.0,
+            window_seconds=self.window_seconds,
         )
+
+    def _discard_expired(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
 
 
 class UpdateLoggingMiddleware(BaseMiddleware):
@@ -122,8 +142,7 @@ def configure_logging(log_directory: Optional[Path] = None) -> logging.Logger:
         root_logger.addHandler(console_handler)
 
     if not any(
-        getattr(handler, "baseFilename", None)
-        == str((directory / "bot.log").resolve())
+        getattr(handler, "baseFilename", None) == str((directory / "bot.log").resolve())
         for handler in root_logger.handlers
     ):
         handler = RetentionRotatingFileHandler(
@@ -133,9 +152,7 @@ def configure_logging(log_directory: Optional[Path] = None) -> logging.Logger:
             backupCount=5,
         )
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s %(message)s"
-            )
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
         root_logger.addHandler(handler)
 

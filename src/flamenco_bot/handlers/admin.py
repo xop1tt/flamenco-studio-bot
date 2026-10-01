@@ -34,6 +34,7 @@ from ..keyboards.admin import (
 from ..keyboards.common import CANCEL, MAIN_MENU
 from ..keyboards.user import main_menu_keyboard
 from ..runtime.runtime_resources import get_process_resources
+from ..payments import PaymentProviderError, YooKassaClient
 
 
 logger = logging.getLogger("bot.handlers.admin")
@@ -297,9 +298,7 @@ async def save_restart_schedule(
         ).astimezone()
         await restart_controller.schedule_restart(scheduled_at)
     except ValueError:
-        await message.answer(
-            "Укажите будущее время в формате ГГГГ-ММ-ДД ЧЧ:ММ."
-        )
+        await message.answer("Укажите будущее время в формате ГГГГ-ММ-ДД ЧЧ:ММ.")
         return
     await state.clear()
     await message.answer(
@@ -597,6 +596,7 @@ async def save_participant_phone(
         telegram_id,
     )
 
+
 @router.message(Command("requests"))
 async def list_requests(message: Message, repository: Any) -> None:
     admin_id = await _admin_id(message, repository)
@@ -650,4 +650,164 @@ async def complete_request(message: Message, repository: Any) -> None:
         admin_id,
         parts[1],
         completed,
+    )
+
+
+async def _process_lesson_refund(
+    message: Message,
+    payment_id: int,
+    repository: Any,
+    payment_gateway: YooKassaClient,
+    admin_id: int,
+    reason: Optional[str] = None,
+) -> None:
+    try:
+        refund = await repository.prepare_lesson_refund(
+            payment_id,
+            admin_id,
+            reason or "Административный возврат",
+        )
+    except ValueError as error:
+        await message.answer(str(error))
+        return
+    if refund is None:
+        await message.answer(
+            "Возврат недоступен: платёж не найден или не находится в статусе "
+            "успешной оплаты."
+        )
+        return
+
+    try:
+        provider_refund = (
+            await payment_gateway.get_refund(refund.provider_refund_id)
+            if refund.provider_refund_id
+            else await payment_gateway.create_refund(
+                payment_id=refund.provider_payment_id,
+                amount_minor=refund.amount_minor,
+                description=refund.reason,
+                idempotence_key=str(refund.idempotence_key),
+            )
+        )
+    except PaymentProviderError as error:
+        logger.error(
+            "Refund provider check failed payment_id=%s error_type=%s",
+            payment_id,
+            type(error).__name__,
+        )
+        await message.answer(
+            "Не удалось подтвердить результат возврата в ЮKassa. Баланс занятий "
+            "зарезервирован; повторите /refund_check {} для сверки.".format(payment_id)
+        )
+        return
+
+    if (
+        provider_refund.payment_id != refund.provider_payment_id
+        or provider_refund.amount_minor != refund.amount_minor
+        or provider_refund.currency != "RUB"
+    ):
+        logger.error("Refund details mismatch payment_id=%s", payment_id)
+        await message.answer(
+            "Данные возврата не совпали. Баланс зарезервирован; требуется "
+            "ручная сверка с ЮKassa."
+        )
+        return
+
+    await repository.record_provider_refund(payment_id, provider_refund.refund_id)
+    if provider_refund.status == "succeeded":
+        completed = await repository.complete_lesson_refund(payment_id)
+        if completed:
+            await message.answer(
+                "Возврат подтверждён. Списание {} неиспользованных занятий "
+                "зафиксировано.".format(refund.lessons)
+            )
+            logger.warning(
+                "Admin refund completed payment_id=%s admin_id=%s refund_id=%s",
+                payment_id,
+                admin_id,
+                provider_refund.refund_id,
+            )
+            actions_logger.warning(
+                "action=refund payment_id=%s admin_id=%s refund_id=%s",
+                payment_id,
+                admin_id,
+                provider_refund.refund_id,
+            )
+        else:
+            await message.answer(
+                "ЮKassa подтвердила возврат, но локальная запись уже обработана. "
+                "Проверьте аудит платежа."
+            )
+        return
+
+    if provider_refund.status == "pending":
+        await message.answer(
+            "ЮKassa приняла возврат, он ещё обрабатывается. Повторите "
+            "/refund_check {} позже.".format(payment_id)
+        )
+        return
+    if provider_refund.status == "canceled":
+        released = await repository.release_lesson_refund(payment_id)
+        if released:
+            await message.answer(
+                "ЮKassa отменила возврат. Резерв занятий снят, баланс восстановлен. "
+                "При необходимости можно повторить /refund {} причина.".format(
+                    payment_id
+                )
+            )
+            logger.warning(
+                "Provider canceled lesson refund payment_id=%s refund_id=%s",
+                payment_id,
+                provider_refund.refund_id,
+            )
+            return
+    await message.answer(
+        "ЮKassa вернула статус «{}». Баланс остаётся зарезервированным; "
+        "требуется сверка с провайдером.".format(provider_refund.status)
+    )
+
+
+@router.message(Command("refund"))
+async def refund_lesson_payment(
+    message: Message,
+    repository: Any,
+    payment_gateway: YooKassaClient,
+) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await message.answer("Команда доступна только администратору студии.")
+        return
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) != 3 or not parts[1].isdigit() or not parts[2].strip():
+        await message.answer("Формат команды: /refund ID причина")
+        return
+    await _process_lesson_refund(
+        message,
+        int(parts[1]),
+        repository,
+        payment_gateway,
+        admin_id,
+        parts[2],
+    )
+
+
+@router.message(Command("refund_check"))
+async def check_lesson_refund(
+    message: Message,
+    repository: Any,
+    payment_gateway: YooKassaClient,
+) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await message.answer("Команда доступна только администратору студии.")
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Формат команды: /refund_check ID")
+        return
+    await _process_lesson_refund(
+        message,
+        int(parts[1]),
+        repository,
+        payment_gateway,
+        admin_id,
     )

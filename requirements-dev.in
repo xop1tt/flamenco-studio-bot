@@ -1,2 +1,3 @@
 -r requirements.in
 coverage==7.10.7
+ruff==0.14.10

@@ -5,7 +5,10 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
-from flamenco_bot.database.repository import PostgresRepository
+from flamenco_bot.database.repository import (
+    PaymentAttemptUnresolved,
+    PostgresRepository,
+)
 
 
 DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -104,11 +107,39 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             [record["version"] for record in versions],
-            ["001", "002"],
+            ["001", "002", "003"],
         )
         self.assertEqual(index_name, "lesson_requests_pending_created_idx")
 
         await repository.initialize()
+        async with pool.acquire() as connection:
+            legacy_payment_id = await connection.fetchval(
+                """
+                INSERT INTO lesson_payments (
+                    telegram_id, package_key, lessons, amount_minor,
+                    provider_payment_id, confirmation_url
+                )
+                VALUES ($1, 'single', 1, 100000, $2, $3)
+                RETURNING id
+                """,
+                self.telegram_id,
+                "legacy-payment-{}".format(self.telegram_id),
+                "https://example.test/payment",
+            )
+        with self.assertRaisesRegex(PaymentAttemptUnresolved, "до включения"):
+            await repository.begin_lesson_payment_attempt(
+                self.telegram_id,
+                "single",
+                "Single lesson",
+                1,
+                100000,
+            )
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE lesson_payments SET status = 'canceled' WHERE id = $1",
+                legacy_payment_id,
+            )
+
         request = await repository.create_lesson_request(
             self.telegram_id,
             "booking",
@@ -126,13 +157,22 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(request.id, [item.id for item in pending])
         self.assertTrue(await repository.complete_request(request.id))
 
+        attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=self.telegram_id,
+            package_key="pack_4",
+            package_title="Test pack",
+            lessons=4,
+            amount_minor=360000,
+        )
         payment = await repository.create_lesson_payment(
             telegram_id=self.telegram_id,
             package_key="pack_4",
+            package_title="Test pack",
             lessons=4,
             amount_minor=360000,
             provider_payment_id="integration-payment-{}".format(self.telegram_id),
             confirmation_url="https://example.test/payment",
+            idempotence_key=attempt.idempotence_key,
         )
         self.assertTrue(
             await repository.complete_lesson_payment(payment.id, self.telegram_id)
@@ -141,6 +181,106 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await repository.complete_lesson_payment(payment.id, self.telegram_id)
         )
         self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 4)
+        next_attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=self.telegram_id,
+            package_key="pack_4",
+            package_title="Test pack",
+            lessons=4,
+            amount_minor=360000,
+        )
+        self.assertNotEqual(next_attempt.idempotence_key, attempt.idempotence_key)
+        canceled_payment = await repository.create_lesson_payment(
+            telegram_id=self.telegram_id,
+            package_key="pack_4",
+            package_title="Test pack",
+            lessons=4,
+            amount_minor=360000,
+            provider_payment_id="integration-canceled-{}".format(self.telegram_id),
+            confirmation_url="https://example.test/payment",
+            idempotence_key=next_attempt.idempotence_key,
+        )
+        self.assertTrue(
+            await repository.cancel_lesson_payment(
+                canceled_payment.id,
+                self.telegram_id,
+            )
+        )
+        retry_attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=self.telegram_id,
+            package_key="pack_4",
+            package_title="Test pack",
+            lessons=4,
+            amount_minor=360000,
+        )
+        self.assertNotEqual(retry_attempt.idempotence_key, next_attempt.idempotence_key)
+
+        refund = await repository.prepare_lesson_refund(
+            payment.id,
+            self.telegram_id,
+            "integration refund",
+        )
+        self.assertIsNotNone(refund)
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 0)
+        await repository.record_provider_refund(
+            payment.id, "canceled-refund-{}".format(payment.id)
+        )
+        self.assertTrue(await repository.release_lesson_refund(payment.id))
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 4)
+        retry_refund = await repository.prepare_lesson_refund(
+            payment.id,
+            self.telegram_id,
+            "retry after provider cancellation",
+        )
+        self.assertIsNotNone(retry_refund)
+        self.assertNotEqual(retry_refund.idempotence_key, refund.idempotence_key)
+        await repository.record_provider_refund(
+            payment.id, "refund-{}".format(payment.id)
+        )
+        self.assertTrue(await repository.complete_lesson_refund(payment.id))
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 0)
+
+        await repository.set_scheduled_restart(
+            datetime.now(timezone.utc) + timedelta(hours=2)
+        )
+        self.assertIsNotNone(await repository.get_scheduled_restart())
+        await repository.clear_scheduled_restart()
+        self.assertIsNone(await repository.get_scheduled_restart())
+
+        used_attempt = await repository.begin_lesson_payment_attempt(
+            telegram_id=self.telegram_id,
+            package_key="single",
+            package_title="Single lesson",
+            lessons=1,
+            amount_minor=100000,
+        )
+        used_payment = await repository.create_lesson_payment(
+            telegram_id=self.telegram_id,
+            package_key="single",
+            package_title="Single lesson",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="integration-used-{}".format(self.telegram_id),
+            confirmation_url="https://example.test/payment",
+            idempotence_key=used_attempt.idempotence_key,
+        )
+        self.assertTrue(
+            await repository.complete_lesson_payment(
+                used_payment.id,
+                self.telegram_id,
+            )
+        )
+        booking = await repository.create_lesson_request(
+            self.telegram_id,
+            "booking",
+            "consume one paid credit",
+        )
+        self.assertTrue(await repository.complete_request(booking.id))
+        with self.assertRaisesRegex(ValueError, "неиспользованных"):
+            await repository.prepare_lesson_refund(
+                used_payment.id,
+                self.telegram_id,
+                "used credit",
+            )
 
         await repository.record_activity(self.telegram_id)
         statistics = await repository.get_user_statistics(

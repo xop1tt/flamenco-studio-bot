@@ -2,11 +2,11 @@ import asyncio
 import base64
 import json
 import logging
-import uuid
 from dataclasses import dataclass
 from decimal import Decimal, DecimalException
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -26,6 +26,15 @@ class ProviderPayment:
     currency: str
     confirmation_url: Optional[str]
     metadata: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ProviderRefund:
+    refund_id: str
+    payment_id: str
+    status: str
+    amount_minor: int
+    currency: str
 
 
 class YooKassaClient:
@@ -51,13 +60,13 @@ class YooKassaClient:
         description: str,
         telegram_id: int,
         package_key: str,
+        idempotence_key: str,
     ) -> ProviderPayment:
         if not self.is_configured:
             raise PaymentProviderError("ЮKassa не настроена")
         if amount_minor <= 0:
             raise ValueError("Сумма оплаты должна быть положительной")
 
-        idempotence_key = str(uuid.uuid4())
         payload = {
             "amount": {
                 "value": "{:.2f}".format(Decimal(amount_minor) / 100),
@@ -89,11 +98,50 @@ class YooKassaClient:
         response = await asyncio.to_thread(
             self._request,
             "GET",
-            "/payments/{}".format(payment_id),
+            "/payments/{}".format(quote(payment_id, safe="")),
             None,
             None,
         )
         return self._parse_payment(response)
+
+    async def create_refund(
+        self,
+        payment_id: str,
+        amount_minor: int,
+        description: str,
+        idempotence_key: str,
+    ) -> ProviderRefund:
+        if not self.is_configured:
+            raise PaymentProviderError("ЮKassa не настроена")
+        if amount_minor <= 0:
+            raise ValueError("Сумма возврата должна быть положительной")
+        response = await asyncio.to_thread(
+            self._request,
+            "POST",
+            "/refunds",
+            {
+                "payment_id": payment_id,
+                "amount": {
+                    "value": "{:.2f}".format(Decimal(amount_minor) / 100),
+                    "currency": "RUB",
+                },
+                "description": description[:128],
+            },
+            idempotence_key,
+        )
+        return self._parse_refund(response)
+
+    async def get_refund(self, refund_id: str) -> ProviderRefund:
+        if not self.is_configured:
+            raise PaymentProviderError("ЮKassa не настроена")
+        response = await asyncio.to_thread(
+            self._request,
+            "GET",
+            "/refunds/{}".format(quote(refund_id, safe="")),
+            None,
+            None,
+        )
+        return self._parse_refund(response)
 
     def _request(
         self,
@@ -146,9 +194,7 @@ class YooKassaClient:
                 method,
                 type(error).__name__,
             )
-            raise PaymentProviderError(
-                "Не удалось связаться с ЮKassa"
-            ) from error
+            raise PaymentProviderError("Не удалось связаться с ЮKassa") from error
 
         if not isinstance(decoded, dict):
             raise PaymentProviderError("Некорректный ответ ЮKassa")
@@ -176,4 +222,28 @@ class YooKassaClient:
             currency=currency,
             confirmation_url=confirmation_url,
             metadata=metadata,
+        )
+
+    @staticmethod
+    def _parse_refund(response: Dict[str, Any]) -> ProviderRefund:
+        try:
+            refund_id = response["id"]
+            payment_id = response["payment_id"]
+            status = response["status"]
+            amount = response["amount"]
+            amount_minor = int(Decimal(str(amount["value"])) * 100)
+            currency = amount["currency"]
+        except (KeyError, TypeError, ValueError, DecimalException) as error:
+            raise PaymentProviderError("Некорректный ответ ЮKassa") from error
+        if not all(
+            isinstance(value, str)
+            for value in (refund_id, payment_id, status, currency)
+        ):
+            raise PaymentProviderError("Некорректный ответ ЮKassa")
+        return ProviderRefund(
+            refund_id=refund_id,
+            payment_id=payment_id,
+            status=status,
+            amount_minor=amount_minor,
+            currency=currency,
         )

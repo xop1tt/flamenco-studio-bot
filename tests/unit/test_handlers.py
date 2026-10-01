@@ -1,6 +1,7 @@
 import hashlib
 import time
 import unittest
+import uuid
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
@@ -230,10 +231,13 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         self.repository.update_phone.assert_not_awaited()
 
         self.message.contact.user_id = 1001
-        with patch(
-            "flamenco_bot.keyboards.user.account.secrets.randbelow",
-            return_value=123456,
-        ), patch("flamenco_bot.keyboards.user.account.time.time", return_value=100):
+        with (
+            patch(
+                "flamenco_bot.keyboards.user.account.secrets.randbelow",
+                return_value=123456,
+            ),
+            patch("flamenco_bot.keyboards.user.account.time.time", return_value=100),
+        ):
             await save_phone(self.message, self.state)
             self.repository.update_phone.assert_not_awaited()
             self.assertEqual(
@@ -362,10 +366,12 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         self.repository.create_lesson_payment.assert_awaited_once_with(
             telegram_id=1001,
             package_key="single",
+            package_title="Разовое занятие",
             lessons=1,
             amount_minor=100000,
             provider_payment_id="provider-payment-1",
             confirmation_url="https://pay.example.test/confirm/1",
+            idempotence_key=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         )
         inline_markup = self.message.last_answer.kwargs["reply_markup"]
         callback_data = inline_markup.inline_keyboard[1][0].callback_data
@@ -392,6 +398,38 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         self.repository.complete_lesson_payment.assert_awaited_once_with(8, 1001)
         self.assertIn("Оплата подтверждена", self.message.last_answer.args[0])
         self.assertIn("Остаток: 1", self.message.last_answer.args[0])
+
+    async def test_checkout_records_payment_if_provider_omits_confirmation_url(self):
+        self.message.text = "Разовое занятие — 1000 ₽"
+        await select_purchase(self.message, self.state)
+        gateway = SimpleNamespace(
+            is_configured=True,
+            create_payment=AsyncMock(
+                return_value=ProviderPayment(
+                    payment_id="provider-payment-2",
+                    status="pending",
+                    amount_minor=100000,
+                    currency="RUB",
+                    confirmation_url=None,
+                    metadata={"telegram_id": "1001", "package_key": "single"},
+                )
+            ),
+        )
+
+        await submit_purchase_request(
+            self.message,
+            self.state,
+            self.repository,
+            gateway,
+        )
+
+        self.repository.create_lesson_payment.assert_awaited_once()
+        self.assertEqual(
+            self.repository.create_lesson_payment.await_args.kwargs["confirmation_url"],
+            "",
+        )
+        self.assertIn("зарегистрирован", self.message.last_answer.args[0])
+        self.assertIn("безопасную ссылку", self.message.last_answer.args[0])
 
     async def test_purchase_without_selected_package_falls_back(self):
         self.state.data = {}
@@ -474,7 +512,9 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         self.repository.get_profile.return_value = self.repository.profile
         with patch("flamenco_bot.handlers.admin.actions_logger") as audit_logger:
             await start_participant_search(self.message, self.state, self.repository)
-            self.assertEqual(self.state.current_state, AdminForm.waiting_for_search.state)
+            self.assertEqual(
+                self.state.current_state, AdminForm.waiting_for_search.state
+            )
             self.message.text = "Анна"
             await search_participants(self.message, self.state, self.repository)
             self.repository.search_profiles.assert_awaited_once_with("Анна", limit=20)
@@ -487,7 +527,9 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
             await save_participant_name(self.message, self.state, self.repository)
             self.repository.update_user_name.assert_awaited_once_with(1001, "Новое имя")
 
-            await start_edit_participant_phone(self.message, self.state, self.repository)
+            await start_edit_participant_phone(
+                self.message, self.state, self.repository
+            )
             self.message.text = "1001"
             await select_phone_target(self.message, self.state, self.repository)
             self.message.text = "+79991234567"

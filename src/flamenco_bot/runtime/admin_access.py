@@ -18,11 +18,7 @@ async def get_admin_id(message: Message, repository: Any) -> Optional[int]:
         return None
 
     profile = await repository.get_profile(sender.id)
-    if (
-        profile is None
-        or profile.telegram_id != sender.id
-        or not profile.is_admin
-    ):
+    if profile is None or profile.telegram_id != sender.id or not profile.is_admin:
         logger.debug(
             "Admin access denied reason=%s telegram_id=%s",
             "not_registered_or_not_admin",

@@ -45,6 +45,7 @@ class YooKassaClientTests(unittest.IsolatedAsyncioTestCase):
                 description="Абонемент на 4 занятия",
                 telegram_id=123,
                 package_key="pack_4",
+                idempotence_key="checkout-stable-key",
             )
 
         self.assertEqual(payment.payment_id, "provider-id")
@@ -56,7 +57,7 @@ class YooKassaClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["amount"], {"value": "3600.00", "currency": "RUB"})
         self.assertEqual(payload["confirmation"]["return_url"], "https://t.me/test_bot")
         self.assertEqual(payload["metadata"]["telegram_id"], "123")
-        self.assertTrue(request.get_header("Idempotence-key"))
+        self.assertEqual(request.get_header("Idempotence-key"), "checkout-stable-key")
         self.assertNotIn("secret-test", request.get_header("Authorization"))
 
     async def test_payment_status_request_uses_escaped_provider_resource_path(self):
@@ -70,12 +71,38 @@ class YooKassaClientTests(unittest.IsolatedAsyncioTestCase):
             "flamenco_bot.payments.client.urlopen",
             return_value=FakeResponse(provider_response),
         ) as urlopen:
-            payment = await self.client.get_payment("provider-id")
+            payment = await self.client.get_payment("provider/id")
 
         self.assertEqual(payment.status, "succeeded")
         self.assertEqual(
             urlopen.call_args.args[0].full_url,
-            "https://api.yookassa.ru/v3/payments/provider-id",
+            "https://api.yookassa.ru/v3/payments/provider%2Fid",
+        )
+
+    async def test_refund_uses_persisted_idempotence_key(self):
+        provider_response = {
+            "id": "refund-id",
+            "payment_id": "provider-id",
+            "status": "succeeded",
+            "amount": {"value": "3600.00", "currency": "RUB"},
+        }
+        with patch(
+            "flamenco_bot.payments.client.urlopen",
+            return_value=FakeResponse(provider_response),
+        ) as urlopen:
+            refund = await self.client.create_refund(
+                "provider-id",
+                360000,
+                "Client request",
+                "refund-stable-key",
+            )
+
+        self.assertEqual(refund.refund_id, "refund-id")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("Idempotence-key"), "refund-stable-key")
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(
+            json.loads(request.data.decode("utf-8"))["payment_id"], "provider-id"
         )
 
     async def test_checkout_requires_credentials_and_valid_provider_response(self):
@@ -86,6 +113,7 @@ class YooKassaClientTests(unittest.IsolatedAsyncioTestCase):
                 "Разовое занятие",
                 123,
                 "single",
+                "stable-key",
             )
 
         with self.assertRaisesRegex(PaymentProviderError, "Некорректный ответ"):

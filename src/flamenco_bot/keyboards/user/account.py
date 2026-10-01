@@ -161,9 +161,13 @@ async def verify_phone_code(
     code = (message.text or "").strip()
     expected_hash = challenge.get("phone_code_hash", "")
     supplied_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    if not code.isdigit() or len(code) != 6 or not hmac.compare_digest(
-        supplied_hash,
-        expected_hash,
+    if (
+        not code.isdigit()
+        or len(code) != 6
+        or not hmac.compare_digest(
+            supplied_hash,
+            expected_hash,
+        )
     ):
         attempts = challenge.get("phone_code_attempts", 0) + 1
         if attempts >= PHONE_CODE_MAX_ATTEMPTS:

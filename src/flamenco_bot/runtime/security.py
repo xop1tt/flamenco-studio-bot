@@ -20,7 +20,9 @@ class SecurityMiddleware(BaseMiddleware):
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if max_events < 1 or window_seconds <= 0 or max_tracked_users < 1:
-            raise ValueError("Параметры ограничения запросов должны быть положительными")
+            raise ValueError(
+                "Параметры ограничения запросов должны быть положительными"
+            )
         self.max_events = max_events
         self.window_seconds = window_seconds
         self.max_tracked_users = max_tracked_users

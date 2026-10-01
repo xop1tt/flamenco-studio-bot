@@ -24,7 +24,7 @@ class RetentionRotatingFileHandler(RotatingFileHandler):
         base_path = Path(self.baseFilename)
         prefix = base_path.name + "."
         for backup in base_path.parent.glob(prefix + "*"):
-            if not backup.name[len(prefix):].isdigit():
+            if not backup.name[len(prefix) :].isdigit():
                 continue
             if not backup.is_file():
                 continue

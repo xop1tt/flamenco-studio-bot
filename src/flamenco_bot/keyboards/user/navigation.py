@@ -28,13 +28,17 @@ async def cancel_current_action(
         AccountForm.waiting_for_name.state,
     }:
         reply_markup = account_menu_keyboard()
-    elif current_state in {
-        AdminForm.waiting_for_search.state,
-        AdminForm.waiting_for_name_target.state,
-        AdminForm.waiting_for_name_value.state,
-        AdminForm.waiting_for_phone_target.state,
-        AdminForm.waiting_for_phone_value.state,
-    } and await get_admin_id(message, repository) is not None:
+    elif (
+        current_state
+        in {
+            AdminForm.waiting_for_search.state,
+            AdminForm.waiting_for_name_target.state,
+            AdminForm.waiting_for_name_value.state,
+            AdminForm.waiting_for_phone_target.state,
+            AdminForm.waiting_for_phone_value.state,
+        }
+        and await get_admin_id(message, repository) is not None
+    ):
         reply_markup = admin_menu_keyboard()
     elif current_state == LessonForm.waiting_for_booking_time.state:
         reply_markup = class_menu_keyboard()

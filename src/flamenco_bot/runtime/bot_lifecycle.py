@@ -66,6 +66,7 @@ class RestartController:
         clock: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         wait_for: Callable[..., Awaitable[Any]] = asyncio.wait_for,
+        restart_store: Optional[Any] = None,
     ) -> None:
         self.bot = bot
         self.dispatcher = dispatcher
@@ -77,6 +78,7 @@ class RestartController:
         self.clock = clock
         self.sleep = sleep
         self.wait_for = wait_for
+        self.restart_store = restart_store
         self.restart_event = asyncio.Event()
         self.restart_reason: Optional[str] = None
         self.polling_started = False
@@ -111,6 +113,8 @@ class RestartController:
             raise ValueError("Время перезапуска должно быть в будущем")
 
         await self.cancel_scheduled_restart()
+        if self.restart_store is not None:
+            await self.restart_store.set_scheduled_restart(scheduled_at)
         self.scheduled_restart_at = scheduled_at
         self.scheduled_restart_task = asyncio.create_task(
             self._wait_for_scheduled_restart(scheduled_at)
@@ -120,14 +124,32 @@ class RestartController:
 
     async def cancel_scheduled_restart(self) -> bool:
         task = self.scheduled_restart_task
-        if task is None:
-            return False
-        self.scheduled_restart_task = None
+        canceled = task is not None or self.scheduled_restart_at is not None
+        if task is not None:
+            self.scheduled_restart_task = None
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         self.scheduled_restart_at = None
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        self.logger.info("Scheduled bot restart cancelled")
-        return True
+        if self.restart_store is not None:
+            await self.restart_store.clear_scheduled_restart()
+        if canceled:
+            self.logger.info("Scheduled bot restart cancelled")
+        return canceled
+
+    async def restore_scheduled_restart(self) -> Optional[datetime]:
+        if self.restart_store is None:
+            return None
+        scheduled_at = await self.restart_store.get_scheduled_restart()
+        if scheduled_at is None:
+            return None
+        if scheduled_at <= self.clock().astimezone():
+            await self.restart_store.clear_scheduled_restart()
+            self.logger.warning(
+                "Discarded expired scheduled restart at=%s",
+                scheduled_at.isoformat(),
+            )
+            return None
+        return await self.schedule_restart(scheduled_at)
 
     async def _wait_for_scheduled_restart(self, scheduled_at: datetime) -> None:
         if self.restart_event.is_set():
@@ -165,18 +187,16 @@ class RestartController:
         if (
             self.polling_started
             and self.dispatcher is not None
-            and (
-                self.stop_polling_task is None
-                or self.stop_polling_task.done()
-            )
+            and (self.stop_polling_task is None or self.stop_polling_task.done())
         ):
-            self.stop_polling_task = asyncio.create_task(
-                self.dispatcher.stop_polling()
-            )
+            self.stop_polling_task = asyncio.create_task(self.dispatcher.stop_polling())
 
     async def close(self) -> None:
         if self.scheduled_restart_task is not None:
-            await self.cancel_scheduled_restart()
+            task = self.scheduled_restart_task
+            self.scheduled_restart_task = None
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         if self.stop_polling_task is not None:
             await asyncio.gather(self.stop_polling_task, return_exceptions=True)
 
@@ -222,7 +242,9 @@ class RestartController:
             pass
 
         await self.notify_admins(RESTART_NOTICE)
-        until_midnight = max(0.0, (midnight - self.clock().astimezone()).total_seconds())
+        until_midnight = max(
+            0.0, (midnight - self.clock().astimezone()).total_seconds()
+        )
         try:
             await self.wait_for(
                 self.restart_event.wait(),

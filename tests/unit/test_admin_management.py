@@ -163,9 +163,7 @@ class AdminManagementTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_keyboard_labels_expose_status_restart_and_cancel(self):
         management_labels = {
-            button.text
-            for row in bot_management_keyboard().keyboard
-            for button in row
+            button.text for row in bot_management_keyboard().keyboard for button in row
         }
         confirmation_labels = {
             button.text

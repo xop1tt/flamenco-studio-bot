@@ -3,10 +3,11 @@ import logging
 import ipaddress
 import socket
 import ssl
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 import asyncpg
@@ -86,6 +87,10 @@ class LessonPayment:
     provider_payment_id: str
     confirmation_url: str
     status: str
+    package_title: str = "Пакет занятий"
+    refund_idempotence_key: Optional[uuid.UUID] = None
+    provider_refund_id: Optional[str] = None
+    refund_reason: Optional[str] = None
 
     @classmethod
     def from_record(cls, record: Mapping[str, Any]) -> "LessonPayment":
@@ -98,7 +103,54 @@ class LessonPayment:
             provider_payment_id=record["provider_payment_id"],
             confirmation_url=record["confirmation_url"],
             status=record["status"],
+            package_title=record.get("package_title", "Пакет занятий"),
+            refund_idempotence_key=record.get("refund_idempotence_key"),
+            provider_refund_id=record.get("provider_refund_id"),
+            refund_reason=record.get("refund_reason"),
         )
+
+
+@dataclass(frozen=True)
+class LessonPaymentAttempt:
+    idempotence_key: uuid.UUID
+    telegram_id: int
+    package_key: str
+    package_title: str
+    lessons: int
+    amount_minor: int
+    status: str
+    provider_payment_id: Optional[str] = None
+    confirmation_url: Optional[str] = None
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "LessonPaymentAttempt":
+        return cls(
+            idempotence_key=record["idempotence_key"],
+            telegram_id=record["telegram_id"],
+            package_key=record["package_key"],
+            package_title=record["package_title"],
+            lessons=record["lessons"],
+            amount_minor=record["amount_minor"],
+            status=record["status"],
+            provider_payment_id=record["provider_payment_id"],
+            confirmation_url=record["confirmation_url"],
+        )
+
+
+@dataclass(frozen=True)
+class LessonRefund:
+    payment_id: int
+    telegram_id: int
+    provider_payment_id: str
+    amount_minor: int
+    lessons: int
+    idempotence_key: uuid.UUID
+    provider_refund_id: Optional[str]
+    reason: str
+
+
+class PaymentAttemptUnresolved(RuntimeError):
+    """An ambiguous checkout must be reviewed instead of creating another charge."""
 
 
 class PostgresRepository:
@@ -143,8 +195,7 @@ class PostgresRepository:
                 )
         if pool_min_size < 1 or pool_max_size < pool_min_size:
             raise ValueError(
-                "Размер пула PostgreSQL должен удовлетворять "
-                "1 <= min_size <= max_size"
+                "Размер пула PostgreSQL должен удовлетворять 1 <= min_size <= max_size"
             )
         if hostname == "example.com" or hostname.endswith(
             (".example.com", ".example.test")
@@ -217,9 +268,7 @@ class PostgresRepository:
                         )
                     if version in applied_versions:
                         continue
-                    await connection.execute(
-                        migration.read_text(encoding="utf-8")
-                    )
+                    await connection.execute(migration.read_text(encoding="utf-8"))
                     await connection.execute(
                         "INSERT INTO schema_migrations (version) VALUES ($1)",
                         version,
@@ -236,6 +285,38 @@ class PostgresRepository:
             pool_size=self._pool.get_size(),
             idle_connections=self._pool.get_idle_size(),
         )
+
+    async def get_scheduled_restart(self) -> Optional[datetime]:
+        async with self._pool.acquire() as connection:
+            value = await connection.fetchval(
+                "SELECT setting_value FROM bot_runtime_settings "
+                "WHERE setting_key = 'scheduled_restart_at'"
+            )
+        return datetime.fromisoformat(value) if value is not None else None
+
+    async def set_scheduled_restart(self, scheduled_at: datetime) -> None:
+        if scheduled_at.tzinfo is None:
+            raise ValueError("Время рестарта должно содержать часовой пояс")
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                """
+                INSERT INTO bot_runtime_settings (setting_key, setting_value)
+                VALUES ('scheduled_restart_at', $1)
+                ON CONFLICT (setting_key)
+                DO UPDATE SET setting_value = EXCLUDED.setting_value,
+                              updated_at = NOW()
+                """,
+                scheduled_at.isoformat(),
+            )
+        logger.info("Persisted scheduled restart at=%s", scheduled_at.isoformat())
+
+    async def clear_scheduled_restart(self) -> None:
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                "DELETE FROM bot_runtime_settings "
+                "WHERE setting_key = 'scheduled_restart_at'"
+            )
+        logger.info("Cleared persisted scheduled restart")
 
     async def record_activity(self, telegram_id: int) -> None:
         async with self._pool.acquire() as connection:
@@ -259,33 +340,169 @@ class PostgresRepository:
             online_users=record["online_users"],
         )
 
+    async def begin_lesson_payment_attempt(
+        self,
+        telegram_id: int,
+        package_key: str,
+        package_title: str,
+        lessons: int,
+        amount_minor: int,
+    ) -> LessonPaymentAttempt:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                        hashtextextended($1::text || ':' || $2, 0)
+                    )
+                    """,
+                    telegram_id,
+                    package_key,
+                )
+                record = await connection.fetchrow(
+                    """
+                    SELECT idempotence_key, telegram_id, package_key, package_title,
+                           lessons, amount_minor, status, provider_payment_id,
+                           confirmation_url, created_at
+                    FROM lesson_payment_attempts
+                    WHERE telegram_id = $1 AND package_key = $2
+                      AND status IN ('creating', 'pending')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    telegram_id,
+                    package_key,
+                )
+                if record is not None:
+                    if (
+                        record["status"] == "creating"
+                        and (
+                            datetime.now(timezone.utc) - record["created_at"]
+                        ).total_seconds()
+                        > 23 * 60 * 60
+                    ):
+                        raise PaymentAttemptUnresolved(
+                            "Неоднозначный платёж требует сверки с ЮKassa"
+                        )
+                    logger.info(
+                        "Reusing lesson payment attempt telegram_id=%s "
+                        "package=%s status=%s",
+                        telegram_id,
+                        package_key,
+                        record["status"],
+                    )
+                    return LessonPaymentAttempt.from_record(record)
+
+                legacy_payment_id = await connection.fetchval(
+                    """
+                    SELECT id
+                    FROM lesson_payments
+                    WHERE telegram_id = $1
+                      AND package_key = $2
+                      AND status = 'pending'
+                      AND idempotence_key IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    telegram_id,
+                    package_key,
+                )
+                if legacy_payment_id is not None:
+                    raise PaymentAttemptUnresolved(
+                        "Незавершённый платёж создан до включения безопасных повторов; "
+                        "сначала сверьте его статус с ЮKassa"
+                    )
+
+                record = await connection.fetchrow(
+                    """
+                    INSERT INTO lesson_payment_attempts (
+                        idempotence_key, telegram_id, package_key, package_title,
+                        lessons, amount_minor
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING idempotence_key, telegram_id, package_key, package_title,
+                              lessons, amount_minor, status, provider_payment_id,
+                              confirmation_url
+                    """,
+                    uuid.uuid4(),
+                    telegram_id,
+                    package_key,
+                    package_title,
+                    lessons,
+                    amount_minor,
+                )
+        logger.info(
+            "Started lesson payment attempt telegram_id=%s package=%s",
+            telegram_id,
+            package_key,
+        )
+        return LessonPaymentAttempt.from_record(record)
+
     async def create_lesson_payment(
         self,
         telegram_id: int,
         package_key: str,
+        package_title: str,
         lessons: int,
         amount_minor: int,
         provider_payment_id: str,
         confirmation_url: str,
+        idempotence_key: uuid.UUID,
     ) -> LessonPayment:
         async with self._pool.acquire() as connection:
-            record = await connection.fetchrow(
-                """
-                INSERT INTO lesson_payments (
-                    telegram_id, package_key, lessons, amount_minor,
-                    provider_payment_id, confirmation_url
+            async with connection.transaction():
+                record = await connection.fetchrow(
+                    """
+                    INSERT INTO lesson_payments (
+                        telegram_id, package_key, package_title, lessons, amount_minor,
+                        provider_payment_id, confirmation_url, idempotence_key
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (idempotence_key) WHERE idempotence_key IS NOT NULL
+                    DO UPDATE SET idempotence_key = EXCLUDED.idempotence_key
+                    RETURNING id, telegram_id, package_key, package_title, lessons,
+                              amount_minor, provider_payment_id, confirmation_url,
+                              status, refund_idempotence_key, provider_refund_id,
+                              refund_reason
+                    """,
+                    telegram_id,
+                    package_key,
+                    package_title,
+                    lessons,
+                    amount_minor,
+                    provider_payment_id,
+                    confirmation_url,
+                    idempotence_key,
                 )
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id, telegram_id, package_key, lessons, amount_minor,
-                          provider_payment_id, confirmation_url, status
-                """,
-                telegram_id,
-                package_key,
-                lessons,
-                amount_minor,
-                provider_payment_id,
-                confirmation_url,
-            )
+                await connection.execute(
+                    """
+                    UPDATE lesson_payment_attempts
+                    SET status = CASE
+                            WHEN status IN ('completed', 'failed') THEN status
+                            ELSE 'pending'
+                        END,
+                        provider_payment_id = $2,
+                        confirmation_url = $3, updated_at = NOW()
+                    WHERE idempotence_key = $1
+                    """,
+                    idempotence_key,
+                    provider_payment_id,
+                    confirmation_url,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_payment_events (payment_id, event_type)
+                    VALUES ($1, 'created')
+                    ON CONFLICT DO NOTHING
+                    """,
+                    record["id"],
+                )
+        logger.info(
+            "Saved lesson payment payment_id=%s telegram_id=%s package=%s",
+            record["id"],
+            telegram_id,
+            package_key,
+        )
         return LessonPayment.from_record(record)
 
     async def get_lesson_payment(
@@ -296,8 +513,9 @@ class PostgresRepository:
         async with self._pool.acquire() as connection:
             record = await connection.fetchrow(
                 """
-                SELECT id, telegram_id, package_key, lessons, amount_minor,
-                       provider_payment_id, confirmation_url, status
+                SELECT id, telegram_id, package_key, package_title, lessons,
+                       amount_minor, provider_payment_id, confirmation_url, status,
+                       refund_idempotence_key, provider_refund_id, refund_reason
                 FROM lesson_payments
                 WHERE id = $1 AND telegram_id = $2
                 """,
@@ -327,12 +545,39 @@ class PostgresRepository:
                     return False
                 await connection.execute(
                     """
+                    INSERT INTO lesson_credit_ledger (
+                        telegram_id, payment_id, entry_type, delta, reference_key
+                    )
+                    VALUES ($1, $2, 'purchase', $3, $4)
+                    """,
+                    telegram_id,
+                    payment_id,
+                    record["lessons"],
+                    "payment:{}".format(payment_id),
+                )
+                await connection.execute(
+                    """
                     UPDATE bot_users
                     SET lesson_credits = lesson_credits + $2
                     WHERE telegram_id = $1
                     """,
                     telegram_id,
                     record["lessons"],
+                )
+                await connection.execute(
+                    """
+                    UPDATE lesson_payment_attempts
+                    SET status = 'completed', updated_at = NOW()
+                    WHERE idempotence_key = (
+                        SELECT idempotence_key FROM lesson_payments WHERE id = $1
+                    )
+                    """,
+                    payment_id,
+                )
+                await connection.execute(
+                    "INSERT INTO lesson_payment_events (payment_id, event_type) "
+                    "VALUES ($1, 'succeeded')",
+                    payment_id,
                 )
         logger.info(
             "Lesson payment completed payment_id=%s telegram_id=%s lessons=%s",
@@ -342,17 +587,267 @@ class PostgresRepository:
         )
         return True
 
-    async def cancel_lesson_payment(self, payment_id: int, telegram_id: int) -> None:
+    async def cancel_lesson_payment(self, payment_id: int, telegram_id: int) -> bool:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payment = await connection.fetchrow(
+                    """
+                    UPDATE lesson_payments
+                    SET status = 'canceled'
+                    WHERE id = $1 AND telegram_id = $2 AND status = 'pending'
+                    RETURNING idempotence_key
+                    """,
+                    payment_id,
+                    telegram_id,
+                )
+                canceled = payment is not None
+                if canceled:
+                    await connection.execute(
+                        """
+                        UPDATE lesson_payment_attempts
+                        SET status = 'failed', updated_at = NOW()
+                        WHERE idempotence_key = $1 AND status = 'pending'
+                        """,
+                        payment["idempotence_key"],
+                    )
+                    await connection.execute(
+                        "INSERT INTO lesson_payment_events (payment_id, event_type) "
+                        "VALUES ($1, 'canceled')",
+                        payment_id,
+                    )
+        logger.info(
+            "Lesson payment cancellation recorded payment_id=%s "
+            "telegram_id=%s updated=%s",
+            payment_id,
+            telegram_id,
+            canceled,
+        )
+        return canceled
+
+    async def prepare_lesson_refund(
+        self,
+        payment_id: int,
+        admin_telegram_id: int,
+        reason: str,
+    ) -> Optional[LessonRefund]:
+        normalized_reason = reason.strip()
+        if not normalized_reason or len(normalized_reason) > 300:
+            raise ValueError("Причина возврата должна содержать от 1 до 300 символов")
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payment = await connection.fetchrow(
+                    """
+                    SELECT id, telegram_id, provider_payment_id, amount_minor,
+                           lessons, status, refund_idempotence_key,
+                           provider_refund_id, refund_reason
+                    FROM lesson_payments WHERE id = $1 FOR UPDATE
+                    """,
+                    payment_id,
+                )
+                if payment is None:
+                    return None
+                if payment["status"] == "refund_pending":
+                    return LessonRefund(
+                        payment_id=payment["id"],
+                        telegram_id=payment["telegram_id"],
+                        provider_payment_id=payment["provider_payment_id"],
+                        amount_minor=payment["amount_minor"],
+                        lessons=payment["lessons"],
+                        idempotence_key=payment["refund_idempotence_key"],
+                        provider_refund_id=payment["provider_refund_id"],
+                        reason=payment["refund_reason"] or normalized_reason,
+                    )
+                if payment["status"] != "succeeded":
+                    return None
+
+                profile = await connection.fetchrow(
+                    """
+                    SELECT lesson_credits FROM bot_users
+                    WHERE telegram_id = $1 FOR UPDATE
+                    """,
+                    payment["telegram_id"],
+                )
+                payment_credit_balance = await connection.fetchval(
+                    """
+                    SELECT COALESCE(SUM(delta), 0)
+                    FROM lesson_credit_ledger
+                    WHERE payment_id = $1
+                      AND entry_type IN (
+                          'purchase', 'lesson_use', 'refund_reservation',
+                          'refund', 'refund_release'
+                      )
+                    """,
+                    payment_id,
+                )
+                if (
+                    profile is None
+                    or profile["lesson_credits"] < payment["lessons"]
+                    or payment_credit_balance < payment["lessons"]
+                ):
+                    raise ValueError(
+                        "Недостаточно неиспользованных занятий для возврата"
+                    )
+
+                refund_key = uuid.uuid4()
+                await connection.execute(
+                    "UPDATE bot_users SET lesson_credits = lesson_credits - $2 "
+                    "WHERE telegram_id = $1",
+                    payment["telegram_id"],
+                    payment["lessons"],
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_credit_ledger (
+                        telegram_id, payment_id, entry_type, delta, reference_key
+                    )
+                    VALUES ($1, $2, 'refund_reservation', $3, $4)
+                    """,
+                    payment["telegram_id"],
+                    payment_id,
+                    -payment["lessons"],
+                    "refund-reservation:{}:{}".format(payment_id, refund_key),
+                )
+                await connection.execute(
+                    """
+                    UPDATE lesson_payments
+                    SET status = 'refund_pending', refund_idempotence_key = $2,
+                        refund_reason = $3
+                    WHERE id = $1
+                    """,
+                    payment_id,
+                    refund_key,
+                    normalized_reason,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_payment_events (
+                        payment_id, event_type, actor_telegram_id, reason
+                    )
+                    VALUES ($1, 'refund_requested', $2, $3)
+                    """,
+                    payment_id,
+                    admin_telegram_id,
+                    normalized_reason,
+                )
+        logger.warning(
+            "Lesson refund reserved payment_id=%s admin_id=%s",
+            payment_id,
+            admin_telegram_id,
+        )
+        return LessonRefund(
+            payment_id=payment["id"],
+            telegram_id=payment["telegram_id"],
+            provider_payment_id=payment["provider_payment_id"],
+            amount_minor=payment["amount_minor"],
+            lessons=payment["lessons"],
+            idempotence_key=refund_key,
+            provider_refund_id=None,
+            reason=normalized_reason,
+        )
+
+    async def record_provider_refund(
+        self,
+        payment_id: int,
+        provider_refund_id: str,
+    ) -> None:
         async with self._pool.acquire() as connection:
             await connection.execute(
                 """
-                UPDATE lesson_payments
-                SET status = 'canceled'
-                WHERE id = $1 AND telegram_id = $2 AND status = 'pending'
+                UPDATE lesson_payments SET provider_refund_id = $2
+                WHERE id = $1 AND status = 'refund_pending'
                 """,
                 payment_id,
-                telegram_id,
+                provider_refund_id,
             )
+        logger.info("Recorded provider refund payment_id=%s", payment_id)
+
+    async def complete_lesson_refund(self, payment_id: int) -> bool:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payment = await connection.fetchrow(
+                    """
+                    UPDATE lesson_payments
+                    SET status = 'refunded', refunded_at = NOW()
+                    WHERE id = $1 AND status = 'refund_pending'
+                    RETURNING telegram_id
+                    """,
+                    payment_id,
+                )
+                if payment is None:
+                    return False
+                await connection.execute(
+                    """
+                    UPDATE lesson_credit_ledger
+                    SET entry_type = 'refund'
+                    WHERE payment_id = $1 AND entry_type = 'refund_reservation'
+                    """,
+                    payment_id,
+                )
+                await connection.execute(
+                    "INSERT INTO lesson_payment_events (payment_id, event_type) "
+                    "VALUES ($1, 'refunded')",
+                    payment_id,
+                )
+        logger.warning("Lesson payment refunded payment_id=%s", payment_id)
+        return True
+
+    async def release_lesson_refund(self, payment_id: int) -> bool:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payment = await connection.fetchrow(
+                    """
+                    SELECT telegram_id, lessons, provider_refund_id
+                    FROM lesson_payments
+                    WHERE id = $1 AND status = 'refund_pending'
+                    FOR UPDATE
+                    """,
+                    payment_id,
+                )
+                if payment is None:
+                    return False
+                await connection.execute(
+                    """
+                    UPDATE lesson_payments
+                    SET status = 'succeeded', refund_idempotence_key = NULL,
+                        provider_refund_id = NULL
+                    WHERE id = $1 AND status = 'refund_pending'
+                    """,
+                    payment_id,
+                )
+                await connection.execute(
+                    """
+                    UPDATE bot_users
+                    SET lesson_credits = lesson_credits + $2
+                    WHERE telegram_id = $1
+                    """,
+                    payment["telegram_id"],
+                    payment["lessons"],
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_credit_ledger (
+                        telegram_id, payment_id, entry_type, delta, reference_key
+                    )
+                    VALUES ($1, $2, 'refund_release', $3, $4)
+                    """,
+                    payment["telegram_id"],
+                    payment_id,
+                    payment["lessons"],
+                    "refund-release:{}:{}".format(payment_id, uuid.uuid4()),
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_payment_events (
+                        payment_id, event_type, reason, provider_refund_id
+                    )
+                    VALUES ($1, 'refund_failed', 'Provider canceled refund', $2)
+                    """,
+                    payment_id,
+                    payment["provider_refund_id"],
+                )
+        logger.warning("Lesson refund reservation released payment_id=%s", payment_id)
+        return True
 
     async def get_lesson_credits(self, telegram_id: int) -> int:
         async with self._pool.acquire() as connection:
@@ -361,7 +856,9 @@ class PostgresRepository:
                 telegram_id,
             )
         if credits is None:
-            raise LookupError("Профиль не найден для Telegram ID {}".format(telegram_id))
+            raise LookupError(
+                "Профиль не найден для Telegram ID {}".format(telegram_id)
+            )
         return credits
 
     async def close(self) -> None:
@@ -439,7 +936,11 @@ class PostgresRepository:
                 "%{}%".format(normalized_query),
                 limit,
             )
-        logger.info("Searched profiles query_length=%s count=%s", len(normalized_query), len(records))
+        logger.info(
+            "Searched profiles query_length=%s count=%s",
+            len(normalized_query),
+            len(records),
+        )
         return [UserProfile.from_record(record) for record in records]
 
     async def get_profile(self, telegram_id: int) -> Optional[UserProfile]:
@@ -503,22 +1004,107 @@ class PostgresRepository:
 
     async def complete_request(self, request_id: int) -> bool:
         async with self._pool.acquire() as connection:
-            result = await connection.execute(
-                """
-                UPDATE lesson_requests
-                SET status = 'completed'
-                WHERE id = $1 AND status = 'pending'
-                """,
-                request_id,
-            )
-        completed = result == "UPDATE 1"
+            async with connection.transaction():
+                request = await connection.fetchrow(
+                    """
+                    SELECT telegram_id, kind
+                    FROM lesson_requests
+                    WHERE id = $1 AND status = 'pending'
+                    FOR UPDATE
+                    """,
+                    request_id,
+                )
+                if request is None:
+                    return False
+                await connection.execute(
+                    "UPDATE lesson_requests SET status = 'completed' WHERE id = $1",
+                    request_id,
+                )
+                if request["kind"] == "booking":
+                    profile = await connection.fetchrow(
+                        """
+                        UPDATE bot_users
+                        SET lesson_credits = lesson_credits - 1
+                        WHERE telegram_id = $1 AND lesson_credits > 0
+                        RETURNING lesson_credits
+                        """,
+                        request["telegram_id"],
+                    )
+                    if profile is not None:
+                        current_credits = profile["lesson_credits"] + 1
+                        allocated_credits = await connection.fetchval(
+                            """
+                            SELECT COALESCE(SUM(remaining), 0)
+                            FROM (
+                                SELECT SUM(ledger.delta) AS remaining
+                                FROM lesson_payments AS payment
+                                JOIN lesson_credit_ledger AS ledger
+                                  ON ledger.payment_id = payment.id
+                                WHERE payment.telegram_id = $1
+                                  AND payment.status = 'succeeded'
+                                GROUP BY payment.id
+                                HAVING SUM(ledger.delta) > 0
+                            ) AS allocated
+                            """,
+                            request["telegram_id"],
+                        )
+                        payment_credit = None
+                        if current_credits <= allocated_credits:
+                            payment_credit = await connection.fetchrow(
+                                """
+                                SELECT payment.id
+                                FROM lesson_payments AS payment
+                                JOIN lesson_credit_ledger AS ledger
+                                  ON ledger.payment_id = payment.id
+                                WHERE payment.telegram_id = $1
+                                  AND payment.status = 'succeeded'
+                                GROUP BY payment.id
+                                HAVING SUM(ledger.delta) > 0
+                                ORDER BY payment.id
+                                LIMIT 1
+                                """,
+                                request["telegram_id"],
+                            )
+                        await connection.execute(
+                            """
+                            INSERT INTO lesson_credit_ledger (
+                                telegram_id, entry_type, delta, reference_key
+                            )
+                            VALUES ($1, 'lesson_use', -1, $2)
+                            """,
+                            request["telegram_id"],
+                            "request:{}".format(request_id),
+                        )
+                        if payment_credit is not None:
+                            await connection.execute(
+                                """
+                                UPDATE lesson_credit_ledger
+                                SET payment_id = $2
+                                WHERE telegram_id = $1
+                                  AND entry_type = 'lesson_use'
+                                  AND reference_key = $3
+                                """,
+                                request["telegram_id"],
+                                payment_credit["id"],
+                                "request:{}".format(request_id),
+                            )
+                        logger.info(
+                            "Debited lesson credit request_id=%s "
+                            "telegram_id=%s remaining=%s",
+                            request_id,
+                            request["telegram_id"],
+                            profile["lesson_credits"],
+                        )
+        completed = True
         logger.info("Completed request id=%s success=%s", request_id, completed)
         return completed
 
     @staticmethod
     def _require_updated(result: str, telegram_id: int) -> None:
         if result != "UPDATE 1":
-            raise LookupError("Профиль не найден для Telegram ID {}".format(telegram_id))
+            raise LookupError(
+                "Профиль не найден для Telegram ID {}".format(telegram_id)
+            )
 
 
 def is_database_configured(database_url: str) -> bool:
@@ -543,7 +1129,10 @@ class InMemoryRepository:
         self._profiles: Dict[int, UserProfile] = {}
         self._requests: Dict[int, LessonRequest] = {}
         self._payments: Dict[int, LessonPayment] = {}
+        self._payment_attempts: Dict[Tuple[int, str], LessonPaymentAttempt] = {}
+        self._credit_ledger: list[Tuple[int, int, str, Optional[int]]] = []
         self._last_seen: Dict[int, datetime] = {}
+        self._scheduled_restart_at: Optional[datetime] = None
         self._next_request_id = 1
         self._next_payment_id = 1
 
@@ -559,6 +1148,15 @@ class InMemoryRepository:
             pool_size=0,
             idle_connections=0,
         )
+
+    async def get_scheduled_restart(self) -> Optional[datetime]:
+        return self._scheduled_restart_at
+
+    async def set_scheduled_restart(self, scheduled_at: datetime) -> None:
+        self._scheduled_restart_at = scheduled_at
+
+    async def clear_scheduled_restart(self) -> None:
+        self._scheduled_restart_at = None
 
     async def get_or_create_profile(
         self,
@@ -595,8 +1193,7 @@ class InMemoryRepository:
     async def get_user_statistics(self, online_since: datetime) -> UserStatistics:
         total_users = len(self._profiles)
         online_users = sum(
-            last_seen >= online_since
-            for last_seen in self._last_seen.values()
+            last_seen >= online_since for last_seen in self._last_seen.values()
         )
         return UserStatistics(total_users, online_users)
 
@@ -622,14 +1219,42 @@ class InMemoryRepository:
             lesson_credits=profile.lesson_credits,
         )
 
+    async def begin_lesson_payment_attempt(
+        self,
+        telegram_id: int,
+        package_key: str,
+        package_title: str,
+        lessons: int,
+        amount_minor: int,
+    ) -> LessonPaymentAttempt:
+        if telegram_id not in self._profiles:
+            raise LookupError("Сначала создайте профиль командой /start")
+        attempt_key = (telegram_id, package_key)
+        existing = self._payment_attempts.get(attempt_key)
+        if existing is not None and existing.status in {"creating", "pending"}:
+            return existing
+        attempt = LessonPaymentAttempt(
+            idempotence_key=uuid.uuid4(),
+            telegram_id=telegram_id,
+            package_key=package_key,
+            package_title=package_title,
+            lessons=lessons,
+            amount_minor=amount_minor,
+            status="creating",
+        )
+        self._payment_attempts[attempt_key] = attempt
+        return attempt
+
     async def create_lesson_payment(
         self,
         telegram_id: int,
         package_key: str,
+        package_title: str,
         lessons: int,
         amount_minor: int,
         provider_payment_id: str,
         confirmation_url: str,
+        idempotence_key: uuid.UUID,
     ) -> LessonPayment:
         if telegram_id not in self._profiles:
             raise LookupError("Сначала создайте профиль командой /start")
@@ -642,9 +1267,31 @@ class InMemoryRepository:
             provider_payment_id=provider_payment_id,
             confirmation_url=confirmation_url,
             status="pending",
+            package_title=package_title,
         )
+        existing = next(
+            (
+                item
+                for item in self._payments.values()
+                if item.provider_payment_id == provider_payment_id
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
         self._payments[payment.id] = payment
         self._next_payment_id += 1
+        self._payment_attempts[(telegram_id, package_key)] = LessonPaymentAttempt(
+            idempotence_key=idempotence_key,
+            telegram_id=telegram_id,
+            package_key=package_key,
+            package_title=package_title,
+            lessons=lessons,
+            amount_minor=amount_minor,
+            status="pending",
+            provider_payment_id=provider_payment_id,
+            confirmation_url=confirmation_url,
+        )
         return payment
 
     async def get_lesson_payment(
@@ -674,6 +1321,27 @@ class InMemoryRepository:
             provider_payment_id=payment.provider_payment_id,
             confirmation_url=payment.confirmation_url,
             status="succeeded",
+            package_title=payment.package_title,
+        )
+        attempt_key = (payment.telegram_id, payment.package_key)
+        attempt = self._payment_attempts.get(attempt_key)
+        if (
+            attempt is not None
+            and attempt.provider_payment_id == payment.provider_payment_id
+        ):
+            self._payment_attempts[attempt_key] = LessonPaymentAttempt(
+                idempotence_key=attempt.idempotence_key,
+                telegram_id=attempt.telegram_id,
+                package_key=attempt.package_key,
+                package_title=attempt.package_title,
+                lessons=attempt.lessons,
+                amount_minor=attempt.amount_minor,
+                status="completed",
+                provider_payment_id=attempt.provider_payment_id,
+                confirmation_url=attempt.confirmation_url,
+            )
+        self._credit_ledger.append(
+            (telegram_id, payment.lessons, "purchase", payment.id)
         )
         profile = self._get_profile(telegram_id)
         self._profiles[telegram_id] = UserProfile(
@@ -686,10 +1354,10 @@ class InMemoryRepository:
         )
         return True
 
-    async def cancel_lesson_payment(self, payment_id: int, telegram_id: int) -> None:
+    async def cancel_lesson_payment(self, payment_id: int, telegram_id: int) -> bool:
         payment = await self.get_lesson_payment(payment_id, telegram_id)
         if payment is None or payment.status != "pending":
-            return
+            return False
         self._payments[payment_id] = LessonPayment(
             id=payment.id,
             telegram_id=payment.telegram_id,
@@ -699,7 +1367,183 @@ class InMemoryRepository:
             provider_payment_id=payment.provider_payment_id,
             confirmation_url=payment.confirmation_url,
             status="canceled",
+            package_title=payment.package_title,
         )
+        attempt_key = (payment.telegram_id, payment.package_key)
+        attempt = self._payment_attempts.get(attempt_key)
+        if (
+            attempt is not None
+            and attempt.provider_payment_id == payment.provider_payment_id
+        ):
+            self._payment_attempts[attempt_key] = LessonPaymentAttempt(
+                idempotence_key=attempt.idempotence_key,
+                telegram_id=attempt.telegram_id,
+                package_key=attempt.package_key,
+                package_title=attempt.package_title,
+                lessons=attempt.lessons,
+                amount_minor=attempt.amount_minor,
+                status="failed",
+                provider_payment_id=attempt.provider_payment_id,
+                confirmation_url=attempt.confirmation_url,
+            )
+        return True
+
+    async def prepare_lesson_refund(
+        self,
+        payment_id: int,
+        admin_telegram_id: int,
+        reason: str,
+    ) -> Optional[LessonRefund]:
+        _ = admin_telegram_id
+        normalized_reason = reason.strip()
+        if not normalized_reason or len(normalized_reason) > 300:
+            raise ValueError("Причина возврата должна содержать от 1 до 300 символов")
+        payment = self._payments.get(payment_id)
+        if payment is None:
+            return None
+        if payment.status == "refund_pending":
+            return LessonRefund(
+                payment_id=payment.id,
+                telegram_id=payment.telegram_id,
+                provider_payment_id=payment.provider_payment_id,
+                amount_minor=payment.amount_minor,
+                lessons=payment.lessons,
+                idempotence_key=payment.refund_idempotence_key or uuid.uuid4(),
+                provider_refund_id=payment.provider_refund_id,
+                reason=payment.refund_reason or normalized_reason,
+            )
+        if payment.status != "succeeded":
+            return None
+        profile = self._get_profile(payment.telegram_id)
+        payment_credit_balance = self._payment_credit_balance(payment_id)
+        if (
+            profile.lesson_credits < payment.lessons
+            or payment_credit_balance < payment.lessons
+        ):
+            raise ValueError("Недостаточно неиспользованных занятий для возврата")
+        refund_key = uuid.uuid4()
+        self._profiles[payment.telegram_id] = UserProfile(
+            telegram_id=profile.telegram_id,
+            phone=profile.phone,
+            user_name=profile.user_name,
+            registered_at=profile.registered_at,
+            is_admin=profile.is_admin,
+            lesson_credits=profile.lesson_credits - payment.lessons,
+        )
+        self._credit_ledger.append(
+            (
+                payment.telegram_id,
+                -payment.lessons,
+                "refund_reservation",
+                payment_id,
+            )
+        )
+        self._payments[payment_id] = LessonPayment(
+            id=payment.id,
+            telegram_id=payment.telegram_id,
+            package_key=payment.package_key,
+            package_title=payment.package_title,
+            lessons=payment.lessons,
+            amount_minor=payment.amount_minor,
+            provider_payment_id=payment.provider_payment_id,
+            confirmation_url=payment.confirmation_url,
+            status="refund_pending",
+            refund_idempotence_key=refund_key,
+            refund_reason=normalized_reason,
+        )
+        return LessonRefund(
+            payment_id=payment.id,
+            telegram_id=payment.telegram_id,
+            provider_payment_id=payment.provider_payment_id,
+            amount_minor=payment.amount_minor,
+            lessons=payment.lessons,
+            idempotence_key=refund_key,
+            provider_refund_id=None,
+            reason=normalized_reason,
+        )
+
+    async def record_provider_refund(
+        self,
+        payment_id: int,
+        provider_refund_id: str,
+    ) -> None:
+        payment = self._payments[payment_id]
+        self._payments[payment_id] = LessonPayment(
+            id=payment.id,
+            telegram_id=payment.telegram_id,
+            package_key=payment.package_key,
+            package_title=payment.package_title,
+            lessons=payment.lessons,
+            amount_minor=payment.amount_minor,
+            provider_payment_id=payment.provider_payment_id,
+            confirmation_url=payment.confirmation_url,
+            status=payment.status,
+            refund_idempotence_key=payment.refund_idempotence_key,
+            provider_refund_id=provider_refund_id,
+            refund_reason=payment.refund_reason,
+        )
+
+    async def complete_lesson_refund(self, payment_id: int) -> bool:
+        payment = self._payments.get(payment_id)
+        if payment is None or payment.status != "refund_pending":
+            return False
+        self._payments[payment_id] = LessonPayment(
+            id=payment.id,
+            telegram_id=payment.telegram_id,
+            package_key=payment.package_key,
+            package_title=payment.package_title,
+            lessons=payment.lessons,
+            amount_minor=payment.amount_minor,
+            provider_payment_id=payment.provider_payment_id,
+            confirmation_url=payment.confirmation_url,
+            status="refunded",
+            refund_idempotence_key=payment.refund_idempotence_key,
+            provider_refund_id=payment.provider_refund_id,
+            refund_reason=payment.refund_reason,
+        )
+        self._credit_ledger = [
+            (
+                telegram_id,
+                delta,
+                "refund"
+                if ledger_payment_id == payment_id
+                and entry_type == "refund_reservation"
+                else entry_type,
+                ledger_payment_id,
+            )
+            for telegram_id, delta, entry_type, ledger_payment_id in self._credit_ledger
+        ]
+        return True
+
+    async def release_lesson_refund(self, payment_id: int) -> bool:
+        payment = self._payments.get(payment_id)
+        if payment is None or payment.status != "refund_pending":
+            return False
+        profile = self._get_profile(payment.telegram_id)
+        self._profiles[payment.telegram_id] = UserProfile(
+            telegram_id=profile.telegram_id,
+            phone=profile.phone,
+            user_name=profile.user_name,
+            registered_at=profile.registered_at,
+            is_admin=profile.is_admin,
+            lesson_credits=profile.lesson_credits + payment.lessons,
+        )
+        self._credit_ledger.append(
+            (payment.telegram_id, payment.lessons, "refund_release", payment_id)
+        )
+        self._payments[payment_id] = LessonPayment(
+            id=payment.id,
+            telegram_id=payment.telegram_id,
+            package_key=payment.package_key,
+            package_title=payment.package_title,
+            lessons=payment.lessons,
+            amount_minor=payment.amount_minor,
+            provider_payment_id=payment.provider_payment_id,
+            confirmation_url=payment.confirmation_url,
+            status="succeeded",
+            refund_reason=payment.refund_reason,
+        )
+        return True
 
     async def get_lesson_credits(self, telegram_id: int) -> int:
         return self._get_profile(telegram_id).lesson_credits
@@ -774,10 +1618,54 @@ class InMemoryRepository:
             status="completed",
             created_at=request.created_at,
         )
+        if request.kind == "booking":
+            profile = self._get_profile(request.telegram_id)
+            if profile.lesson_credits > 0:
+                self._profiles[request.telegram_id] = UserProfile(
+                    telegram_id=profile.telegram_id,
+                    phone=profile.phone,
+                    user_name=profile.user_name,
+                    registered_at=profile.registered_at,
+                    is_admin=profile.is_admin,
+                    lesson_credits=profile.lesson_credits - 1,
+                )
+                legacy_credits = profile.lesson_credits - sum(
+                    max(0, self._payment_credit_balance(payment.id))
+                    for payment in self._payments.values()
+                    if payment.telegram_id == request.telegram_id
+                    and payment.status == "succeeded"
+                )
+                source_payment_id = None
+                if legacy_credits <= 0:
+                    for payment in self._payments.values():
+                        if (
+                            payment.telegram_id == request.telegram_id
+                            and payment.status == "succeeded"
+                            and self._payment_credit_balance(payment.id) > 0
+                        ):
+                            source_payment_id = payment.id
+                            break
+                self._credit_ledger.append(
+                    (
+                        request.telegram_id,
+                        -1,
+                        "lesson_use",
+                        source_payment_id,
+                    )
+                )
         return True
 
     def _get_profile(self, telegram_id: int) -> UserProfile:
         profile = self._profiles.get(telegram_id)
         if profile is None:
-            raise LookupError("Профиль не найден для Telegram ID {}".format(telegram_id))
+            raise LookupError(
+                "Профиль не найден для Telegram ID {}".format(telegram_id)
+            )
         return profile
+
+    def _payment_credit_balance(self, payment_id: int) -> int:
+        return sum(
+            delta
+            for _, delta, _, ledger_payment_id in self._credit_ledger
+            if ledger_payment_id == payment_id
+        )

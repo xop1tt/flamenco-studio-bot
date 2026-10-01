@@ -40,9 +40,7 @@ class KeyboardTests(unittest.TestCase):
 
     def test_main_menu_contains_account_and_lessons(self):
         labels = {
-            button.text
-            for row in main_menu_keyboard().keyboard
-            for button in row
+            button.text for row in main_menu_keyboard().keyboard for button in row
         }
         self.assertEqual(labels, {"👤 Учетная запись", "💃 Запись на занятия"})
 
@@ -53,9 +51,7 @@ class KeyboardTests(unittest.TestCase):
             for button in row
         }
         regular_labels = {
-            button.text
-            for row in main_menu_keyboard().keyboard
-            for button in row
+            button.text for row in main_menu_keyboard().keyboard for button in row
         }
         self.assertIn("🛠 Админ-меню", admin_labels)
         self.assertIn("⚙️ Управление ботом", admin_labels)
@@ -64,18 +60,14 @@ class KeyboardTests(unittest.TestCase):
 
     def test_bot_management_menu_contains_restart_schedule_actions(self):
         labels = {
-            button.text
-            for row in bot_management_keyboard().keyboard
-            for button in row
+            button.text for row in bot_management_keyboard().keyboard for button in row
         }
         self.assertIn(BOT_SCHEDULE_RESTART, labels)
         self.assertIn(BOT_CANCEL_SCHEDULED_RESTART, labels)
 
     def test_account_keyboard_contains_edit_actions_and_back(self):
         labels = {
-            button.text
-            for row in account_menu_keyboard().keyboard
-            for button in row
+            button.text for row in account_menu_keyboard().keyboard for button in row
         }
         self.assertIn("📱 Изменить номер телефона", labels)
         self.assertIn("✏️ Изменить имя", labels)
@@ -89,11 +81,7 @@ class KeyboardTests(unittest.TestCase):
             (booking_input_keyboard, "⬅️ Назад к выбору занятия"),
             (purchase_confirmation_keyboard, "⬅️ Назад к выбору пакета"),
         ):
-            labels = {
-                button.text
-                for row in builder().keyboard
-                for button in row
-            }
+            labels = {button.text for row in builder().keyboard for button in row}
             with self.subTest(builder=builder.__name__):
                 self.assertIn(back_label, labels)
                 self.assertIn("🏠 Главное меню", labels)

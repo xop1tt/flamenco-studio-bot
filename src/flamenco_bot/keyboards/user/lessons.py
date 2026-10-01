@@ -1,9 +1,15 @@
 import logging
+from urllib.parse import urlsplit
 from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from ...runtime.admin_access import get_admin_id
 from . import (
@@ -22,6 +28,7 @@ from . import (
 from .navigation import cancel_current_action
 from .main_menu import ensure_profile
 from ...handlers.states import LessonForm
+from ...database.repository import PaymentAttemptUnresolved
 from ...payments import PaymentProviderError, PURCHASE_OPTIONS, YooKassaClient
 
 
@@ -32,6 +39,8 @@ CLASS_CHOICES = {
     "Продолжающая группа",
     "Индивидуальное занятие",
 }
+
+
 @router.message(F.text == BOOK_CLASS)
 async def choose_class(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -68,7 +77,12 @@ async def select_purchase(
     state: FSMContext,
 ) -> None:
     package = PURCHASE_OPTIONS[message.text]
-    await state.update_data(package_key=package.key)
+    await state.update_data(
+        package_key=package.key,
+        package_title=package.title,
+        package_lessons=package.lessons,
+        package_price_rub=package.price_rub,
+    )
     await state.set_state(LessonForm.waiting_for_purchase_confirmation)
     await message.answer(
         "Купить «{}» за {} ₽? После оплаты занятия будут добавлены на ваш "
@@ -151,16 +165,19 @@ async def submit_purchase_request(
     form_data = await state.get_data()
     package_key = form_data.get("package_key")
     package = next(
-        (
-            item
-            for item in PURCHASE_OPTIONS.values()
-            if item.key == package_key
-        ),
-        None,
+        (item for item in PURCHASE_OPTIONS.values() if item.key == package_key), None
     )
-    if package is None:
+    package_title = form_data.get("package_title")
+    package_lessons = form_data.get("package_lessons")
+    package_price_rub = form_data.get("package_price_rub")
+    if (
+        package is None
+        or not isinstance(package_title, str)
+        or not isinstance(package_lessons, int)
+        or not isinstance(package_price_rub, int)
+    ):
         logger.error(
-            "Purchase package missing telegram_id=%s package_key=%s",
+            "Purchase snapshot missing telegram_id=%s package_key=%s",
             message.from_user.id,
             package_key,
         )
@@ -171,9 +188,8 @@ async def submit_purchase_request(
         )
         return
 
-    if (
-        not payment_gateway.is_configured
-        or not getattr(repository, "supports_durable_payments", False)
+    if not payment_gateway.is_configured or not getattr(
+        repository, "supports_durable_payments", False
     ):
         await state.clear()
         await message.answer(
@@ -188,53 +204,81 @@ async def submit_purchase_request(
         )
         return
 
-    await ensure_profile(message, repository)
     try:
-        provider_payment = await payment_gateway.create_payment(
-            amount_minor=package.price_rub * 100,
-            description="Фламенко: {}".format(package.title),
+        await ensure_profile(message, repository)
+        attempt = await repository.begin_lesson_payment_attempt(
             telegram_id=message.from_user.id,
             package_key=package.key,
+            package_title=package_title,
+            lessons=package_lessons,
+            amount_minor=package_price_rub * 100,
         )
-    except PaymentProviderError as error:
+        provider_payment = await payment_gateway.create_payment(
+            amount_minor=attempt.amount_minor,
+            description="Фламенко: {}".format(attempt.package_title),
+            telegram_id=message.from_user.id,
+            package_key=attempt.package_key,
+            idempotence_key=str(attempt.idempotence_key),
+        )
+    except (PaymentProviderError, PaymentAttemptUnresolved, ValueError) as error:
         await state.clear()
         logger.error(
-            "Failed to create YooKassa payment telegram_id=%s error=%s",
+            "Failed to create YooKassa payment telegram_id=%s error_type=%s",
             message.from_user.id,
-            error,
+            type(error).__name__,
         )
         await message.answer(
-            "Не удалось создать платёж. Попробуйте позже или обратитесь "
-            "к администратору.",
+            "Не удалось безопасно подтвердить создание платежа. Не запускайте "
+            "повторную оплату; обратитесь к администратору для сверки.",
             reply_markup=purchase_menu_keyboard(),
         )
         return
 
-    if not provider_payment.confirmation_url or not provider_payment.confirmation_url.startswith(
-        "https://"
-    ):
-        raise PaymentProviderError(
-            "ЮKassa вернула некорректную ссылку для подтверждения оплаты"
-        )
-
     payment = await repository.create_lesson_payment(
         telegram_id=message.from_user.id,
-        package_key=package.key,
-        lessons=package.lessons,
-        amount_minor=package.price_rub * 100,
+        package_key=attempt.package_key,
+        package_title=attempt.package_title,
+        lessons=attempt.lessons,
+        amount_minor=attempt.amount_minor,
         provider_payment_id=provider_payment.payment_id,
-        confirmation_url=provider_payment.confirmation_url,
+        confirmation_url=provider_payment.confirmation_url or "",
+        idempotence_key=attempt.idempotence_key,
     )
     await state.clear()
+    confirmation_url = provider_payment.confirmation_url
+    try:
+        parsed_confirmation_url = (
+            urlsplit(confirmation_url) if confirmation_url is not None else None
+        )
+    except ValueError:
+        parsed_confirmation_url = None
+    if (
+        parsed_confirmation_url is None
+        or parsed_confirmation_url.scheme != "https"
+        or not parsed_confirmation_url.hostname
+        or parsed_confirmation_url.username is not None
+        or parsed_confirmation_url.password is not None
+    ):
+        logger.error(
+            "YooKassa confirmation URL invalid payment_id=%s",
+            payment.id,
+        )
+        await message.answer(
+            "Платёж №{} зарегистрирован, но получить безопасную ссылку на оплату "
+            "не удалось. Не создавайте новый платёж; обратитесь к администратору "
+            "для сверки.".format(payment.id),
+            reply_markup=purchase_menu_keyboard(),
+        )
+        return
     await message.answer(
         "Платёж №{} создан на сумму {} ₽. Перейдите к оплате, затем нажмите "
-        "«Проверить оплату».".format(payment.id, package.price_rub),
+        "«Проверить оплату».".format(payment.id, attempt.amount_minor // 100),
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
                         text="Перейти к оплате",
-                        url=payment.confirmation_url,
+                        url=confirmation_url,
                     )
                 ],
                 [
@@ -250,7 +294,7 @@ async def submit_purchase_request(
         "Lesson payment created telegram_id=%s payment_id=%s package=%s",
         message.from_user.id,
         payment.id,
-        package.key,
+        attempt.package_key,
     )
 
 
@@ -291,6 +335,12 @@ async def check_lesson_payment(
     if payment.status == "canceled":
         await callback.answer("Платёж отменён.", show_alert=True)
         return
+    if payment.status == "refund_pending":
+        await callback.answer(
+            "Возврат уже обрабатывается. Занятия временно недоступны.",
+            show_alert=True,
+        )
+        return
 
     try:
         provider_payment = await payment_gateway.get_payment(
@@ -330,16 +380,28 @@ async def check_lesson_payment(
             callback.from_user.id,
         )
         if not completed:
-            logger.warning(
-                "Lesson payment already completed payment_id=%s actor_id=%s",
+            latest_payment = await repository.get_lesson_payment(
                 payment.id,
                 callback.from_user.id,
             )
+            credits = await repository.get_lesson_credits(callback.from_user.id)
+            await callback.answer("Статус платежа уже обработан.")
+            if latest_payment is not None and latest_payment.status == "succeeded":
+                await callback.message.answer(
+                    "Платёж уже подтверждён. Остаток занятий: {}.".format(credits)
+                )
+            else:
+                await callback.message.answer(
+                    "Статус платежа изменился во время сверки. Проверьте позже "
+                    "или обратитесь к администратору."
+                )
+            return
         credits = await repository.get_lesson_credits(callback.from_user.id)
         await callback.answer("Оплата подтверждена.")
         await callback.message.answer(
-            "Оплата подтверждена. На баланс добавлено {} занятий. "
-            "Остаток: {}.".format(payment.lessons, credits)
+            "Оплата подтверждена. На баланс добавлено {} занятий. Остаток: {}.".format(
+                payment.lessons, credits
+            )
         )
         logger.info("Lesson payment confirmed payment_id=%s", payment.id)
     elif provider_payment.status == "canceled":

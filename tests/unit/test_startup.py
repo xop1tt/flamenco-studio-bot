@@ -27,16 +27,18 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         )
         dispatcher = FakeDispatcher()
 
-        with patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.create_answers_logger", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "development"), \
-                patch("flamenco_bot.main.is_database_configured", return_value=True), \
-                patch(
-                    "flamenco_bot.main.PostgresRepository.connect",
-                    new=AsyncMock(return_value=repository),
-                ) as connect, \
-                patch("flamenco_bot.main.Bot", return_value=bot), \
-                patch("flamenco_bot.main.Dispatcher", return_value=dispatcher):
+        with (
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.create_answers_logger", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "development"),
+            patch("flamenco_bot.main.is_database_configured", return_value=True),
+            patch(
+                "flamenco_bot.main.PostgresRepository.connect",
+                new=AsyncMock(return_value=repository),
+            ) as connect,
+            patch("flamenco_bot.main.Bot", return_value=bot),
+            patch("flamenco_bot.main.Dispatcher", return_value=dispatcher),
+        ):
             await run_bot()
 
         connect.assert_awaited_once()
@@ -65,18 +67,20 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         dispatcher = FakeDispatcher()
         output = StringIO()
 
-        with redirect_stdout(output), \
-                patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.create_answers_logger", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "development"), \
-                patch("flamenco_bot.main.is_database_configured", return_value=False), \
-                patch(
-                    "flamenco_bot.main.PostgresRepository.connect",
-                    new=AsyncMock(),
-                ) as connect, \
-                patch("flamenco_bot.main.InMemoryRepository", return_value=repository), \
-                patch("flamenco_bot.main.Bot", return_value=bot), \
-                patch("flamenco_bot.main.Dispatcher", return_value=dispatcher):
+        with (
+            redirect_stdout(output),
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.create_answers_logger", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "development"),
+            patch("flamenco_bot.main.is_database_configured", return_value=False),
+            patch(
+                "flamenco_bot.main.PostgresRepository.connect",
+                new=AsyncMock(),
+            ) as connect,
+            patch("flamenco_bot.main.InMemoryRepository", return_value=repository),
+            patch("flamenco_bot.main.Bot", return_value=bot),
+            patch("flamenco_bot.main.Dispatcher", return_value=dispatcher),
+        ):
             await run_bot()
 
         self.assertIn("SQL не настроена!", output.getvalue())
@@ -90,11 +94,13 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         logger = logging.Logger("test.startup.invalid-token")
         output = StringIO()
 
-        with redirect_stderr(output), \
-                patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.is_database_configured", return_value=False), \
-                patch("flamenco_bot.main.InMemoryRepository", return_value=repository), \
-                patch("flamenco_bot.main.Bot", side_effect=TokenValidationError("invalid")):
+        with (
+            redirect_stderr(output),
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.is_database_configured", return_value=False),
+            patch("flamenco_bot.main.InMemoryRepository", return_value=repository),
+            patch("flamenco_bot.main.Bot", side_effect=TokenValidationError("invalid")),
+        ):
             with self.assertRaises(SystemExit) as error:
                 await run_bot()
 
@@ -107,11 +113,13 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
     async def test_production_refuses_missing_database_url(self):
         logger = logging.Logger("test.startup.no-database")
 
-        with patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "production"), \
-                patch("flamenco_bot.main.Config.DATABASE_URL", ""), \
-                patch("flamenco_bot.main.is_database_configured", return_value=False), \
-                patch("flamenco_bot.main.Bot") as bot:
+        with (
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "production"),
+            patch("flamenco_bot.main.Config.DATABASE_URL", ""),
+            patch("flamenco_bot.main.is_database_configured", return_value=False),
+            patch("flamenco_bot.main.Bot") as bot,
+        ):
             with self.assertRaises(SystemExit) as exit_error:
                 await run_bot()
 
@@ -124,21 +132,23 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         bot = SimpleNamespace(session=session)
         output = StringIO()
 
-        with redirect_stderr(output), \
-                patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "development"), \
-                patch("flamenco_bot.main.Config.DATABASE_URL", "postgresql://localhost/bot"), \
-                patch("flamenco_bot.main.is_database_configured", return_value=True), \
-                patch("flamenco_bot.main.Bot", return_value=bot), \
-                patch(
-                    "flamenco_bot.main.PostgresRepository.connect",
-                    new=AsyncMock(
-                        side_effect=DatabaseUnavailableError(
-                            "PostgreSQL is unavailable"
-                        )
-                    ),
-                ), \
-                patch("flamenco_bot.main.restart_process") as restart:
+        with (
+            redirect_stderr(output),
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "development"),
+            patch(
+                "flamenco_bot.main.Config.DATABASE_URL", "postgresql://localhost/bot"
+            ),
+            patch("flamenco_bot.main.is_database_configured", return_value=True),
+            patch("flamenco_bot.main.Bot", return_value=bot),
+            patch(
+                "flamenco_bot.main.PostgresRepository.connect",
+                new=AsyncMock(
+                    side_effect=DatabaseUnavailableError("PostgreSQL is unavailable")
+                ),
+            ),
+            patch("flamenco_bot.main.restart_process") as restart,
+        ):
             with self.assertRaises(SystemExit) as exit_error:
                 await run_bot()
 
@@ -165,19 +175,21 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         )
         output = StringIO()
 
-        with redirect_stdout(output), \
-                patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.create_answers_logger", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "development"), \
-                patch("flamenco_bot.main.Config.ADMINS", [8373364453, 123456789]), \
-                patch("flamenco_bot.main.is_database_configured", return_value=True), \
-                patch(
-                    "flamenco_bot.main.PostgresRepository.connect",
-                    new=AsyncMock(return_value=repository),
-                ), \
-                patch("flamenco_bot.main.Bot", return_value=bot), \
-                patch("flamenco_bot.main.Dispatcher", return_value=dispatcher), \
-                patch("flamenco_bot.main.restart_process") as restart:
+        with (
+            redirect_stdout(output),
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.create_answers_logger", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "development"),
+            patch("flamenco_bot.main.Config.ADMINS", [8373364453, 123456789]),
+            patch("flamenco_bot.main.is_database_configured", return_value=True),
+            patch(
+                "flamenco_bot.main.PostgresRepository.connect",
+                new=AsyncMock(return_value=repository),
+            ),
+            patch("flamenco_bot.main.Bot", return_value=bot),
+            patch("flamenco_bot.main.Dispatcher", return_value=dispatcher),
+            patch("flamenco_bot.main.restart_process") as restart,
+        ):
             await run_bot()
 
         restart.assert_called_once()
@@ -208,18 +220,20 @@ class StartupTests(unittest.IsolatedAsyncioTestCase):
         dispatcher = FakeDispatcher()
         dispatcher.start_polling.side_effect = RuntimeError("private details")
 
-        with patch("flamenco_bot.main.configure_logging", return_value=logger), \
-                patch("flamenco_bot.main.create_answers_logger", return_value=logger), \
-                patch("flamenco_bot.main.Config.ENV", "production"), \
-                patch("flamenco_bot.main.Config.ADMINS", [123456789]), \
-                patch("flamenco_bot.main.is_database_configured", return_value=True), \
-                patch(
-                    "flamenco_bot.main.PostgresRepository.connect",
-                    new=AsyncMock(return_value=repository),
-                ), \
-                patch("flamenco_bot.main.Bot", return_value=bot), \
-                patch("flamenco_bot.main.Dispatcher", return_value=dispatcher), \
-                patch("flamenco_bot.main.restart_process") as restart:
+        with (
+            patch("flamenco_bot.main.configure_logging", return_value=logger),
+            patch("flamenco_bot.main.create_answers_logger", return_value=logger),
+            patch("flamenco_bot.main.Config.ENV", "production"),
+            patch("flamenco_bot.main.Config.ADMINS", [123456789]),
+            patch("flamenco_bot.main.is_database_configured", return_value=True),
+            patch(
+                "flamenco_bot.main.PostgresRepository.connect",
+                new=AsyncMock(return_value=repository),
+            ),
+            patch("flamenco_bot.main.Bot", return_value=bot),
+            patch("flamenco_bot.main.Dispatcher", return_value=dispatcher),
+            patch("flamenco_bot.main.restart_process") as restart,
+        ):
             with self.assertRaises(SystemExit) as exit_error:
                 await run_bot()
 

@@ -1,16 +1,16 @@
 [build-system]
-requires = ["setuptools==80.9.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "flamenco-studio-bot"
 version = "0.1.0"
 description = "Telegram bot for a flamenco studio"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "aiogram==3.22.0",
     "asyncpg==0.31.0",
-    "python-dotenv==1.2.1",
+    "python-dotenv==1.2.2",
 ]
 
 [tool.setuptools]
@@ -21,3 +21,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "flamenco_bot.database" = ["migrations/*.sql"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F"]

@@ -30,10 +30,7 @@ async def main():
     """Запуск бота"""
     logger = configure_logging()
     logger.info("Starting bot env=%s", Config.ENV)
-    if (
-        Config.ENV == "production"
-        and not is_database_configured(Config.DATABASE_URL)
-    ):
+    if Config.ENV == "production" and not is_database_configured(Config.DATABASE_URL):
         logger.critical(
             "DATABASE_URL must point to PostgreSQL in production; "
             "refusing to use temporary in-memory storage"
@@ -63,6 +60,7 @@ async def main():
             admins=Config.ADMINS,
             logger=logger,
             source_root=Path(__file__).resolve().parent,
+            restart_store=None,
         )
 
         if is_database_configured(Config.DATABASE_URL):
@@ -82,7 +80,8 @@ async def main():
         else:
             print("SQL не настроена! Разрешено только в development.", flush=True)
             logger.warning(
-                "PostgreSQL is not configured; profile and request data will be temporary"
+                "PostgreSQL is not configured; profile and request data "
+                "will be temporary"
             )
             repository = InMemoryRepository()
 
@@ -107,6 +106,8 @@ async def main():
         dp.include_router(router)
 
         await repository.initialize()
+        lifecycle.restart_store = repository
+        await lifecycle.restore_scheduled_restart()
         await bot.set_my_commands(get_bot_commands())
         lifecycle_tasks = [
             asyncio.create_task(
@@ -189,6 +190,7 @@ async def main():
             restart_process()
         else:
             raise SystemExit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

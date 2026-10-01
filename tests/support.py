@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import uuid
 from unittest.mock import AsyncMock, Mock
 
 from flamenco_bot.database.repository import (
@@ -117,10 +118,29 @@ class FakeRepository:
                 status="pending",
             )
         )
+        self.begin_lesson_payment_attempt = AsyncMock(
+            return_value=SimpleNamespace(
+                idempotence_key=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                telegram_id=1001,
+                package_key="single",
+                package_title="Разовое занятие",
+                lessons=1,
+                amount_minor=100000,
+                status="creating",
+                provider_payment_id=None,
+                confirmation_url=None,
+            )
+        )
         self.get_lesson_payment = AsyncMock()
         self.complete_lesson_payment = AsyncMock(return_value=True)
         self.cancel_lesson_payment = AsyncMock()
         self.get_lesson_credits = AsyncMock(return_value=1)
+        self.get_scheduled_restart = AsyncMock(return_value=None)
+        self.set_scheduled_restart = AsyncMock()
+        self.clear_scheduled_restart = AsyncMock()
+        self.prepare_lesson_refund = AsyncMock()
+        self.record_provider_refund = AsyncMock()
+        self.complete_lesson_refund = AsyncMock(return_value=True)
 
 
 def make_record(
@@ -174,10 +194,7 @@ class FakeConnection:
     async def fetch(self, query, *args):
         self.calls.append((query, args))
         if "FROM schema_migrations" in query:
-            return [
-                {"version": version}
-                for version in sorted(self.applied_migrations)
-            ]
+            return [{"version": version} for version in sorted(self.applied_migrations)]
         return [make_record()]
 
     async def fetchval(self, query, *args):

@@ -18,7 +18,9 @@ def parse_admins(value: str) -> list[int]:
         try:
             telegram_id = int(item)
         except ValueError as error:
-            raise ValueError("ADMINS должен содержать только числовые Telegram ID") from error
+            raise ValueError(
+                "ADMINS должен содержать только числовые Telegram ID"
+            ) from error
         if telegram_id <= 0:
             raise ValueError("Telegram ID администраторов должны быть положительными")
         if telegram_id not in admins:

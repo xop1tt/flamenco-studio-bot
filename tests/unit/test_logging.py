@@ -16,7 +16,10 @@ from aiogram import Bot
 from aiogram.methods import Response, SendMessage, TelegramMethod
 from aiogram.types import Chat, Message, TelegramObject, Update, User
 
-from flamenco_bot.runtime.answers_logging import AnswersLogMiddleware, create_answers_logger
+from flamenco_bot.runtime.answers_logging import (
+    AnswersLogMiddleware,
+    create_answers_logger,
+)
 from flamenco_bot.runtime.admin_actions_logging import create_admin_actions_logger
 from flamenco_bot.runtime.bot_logging import (
     UpdateLoggingMiddleware,
@@ -134,7 +137,9 @@ class LoggingTests(unittest.IsolatedAsyncioTestCase):
             from_user=User(id=55, is_bot=False, first_name="Test"),
         )
 
-        await middleware(AsyncMock(return_value=None), event, {"repository": repository})
+        await middleware(
+            AsyncMock(return_value=None), event, {"repository": repository}
+        )
 
         repository.record_activity.assert_awaited_once_with(55)
 
@@ -177,6 +182,35 @@ class LoggingTests(unittest.IsolatedAsyncioTestCase):
             (1, 0, 1),
         )
         self.assertGreaterEqual(snapshot.total_duration_ms, 0)
+
+    async def test_update_metrics_are_bounded_to_a_sliding_window(self):
+        now = [10.0]
+        metrics = UpdateMetrics(
+            window_seconds=5,
+            max_samples=2,
+            clock=lambda: now[0],
+        )
+        metrics.record(10, failed=False)
+        now[0] += 1
+        metrics.record(20, failed=True)
+        now[0] += 1
+        metrics.record(30, failed=False)
+
+        capped = metrics.snapshot()
+        self.assertEqual(
+            (capped.started, capped.succeeded, capped.failed),
+            (2, 1, 1),
+        )
+        self.assertEqual(capped.average_duration_ms, 25)
+        self.assertEqual(capped.p95_duration_ms, 30)
+
+        now[0] += 5.001
+        expired = metrics.snapshot()
+        self.assertEqual(
+            (expired.started, expired.succeeded, expired.failed),
+            (0, 0, 0),
+        )
+        self.assertEqual(expired.average_duration_ms, 0)
 
     async def test_health_monitor_logs_update_metrics_and_database_health(self):
         logger = logging.Logger("test.health")
