@@ -1,3 +1,4 @@
+import errno
 import socket
 import ssl
 import unittest
@@ -86,7 +87,7 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "flamenco_bot.database.repository.asyncpg.create_pool",
             new=AsyncMock(
-                side_effect=OSError(61, "Connection refused")
+                side_effect=OSError(errno.ECONNREFUSED, "Connection refused")
             ),
         ):
             with self.assertRaisesRegex(
