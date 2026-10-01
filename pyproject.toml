@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "Telegram bot for a flamenco studio"
 requires-python = ">=3.10"
 dependencies = [
-    "aiogram==3.22.0",
+    "aiogram==3.31.0",
+    "aiohttp==3.14.3",
     "asyncpg==0.31.0",
     "python-dotenv==1.2.2",
 ]

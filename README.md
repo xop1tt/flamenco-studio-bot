@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/xop1tt/flamenco-studio-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/xop1tt/flamenco-studio-bot/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![aiogram](https://img.shields.io/badge/aiogram-3.22-149ECA)](https://docs.aiogram.dev/)
+[![aiogram](https://img.shields.io/badge/aiogram-3.31-149ECA)](https://docs.aiogram.dev/)
 
 Telegram-бот для студии фламенко: профиль участника, запросы на занятия,
 административные инструменты и необязательная оплата пакетов через ЮKassa.
@@ -94,7 +94,7 @@ Python (`pyproject.toml`, requirements-файлы, README и `.gitignore`). Ло
 - PostgreSQL для постоянного хранения, админ-доступа и онлайн-платежей.
 - Для платёжного сценария — учётная запись и реквизиты ЮKassa.
 
-Используемые библиотеки: [aiogram 3](https://docs.aiogram.dev/en/latest/),
+Используемые библиотеки: [aiogram 3.31](https://docs.aiogram.dev/en/latest/),
 [asyncpg](https://magicstack.github.io/asyncpg/current/),
 [python-dotenv](https://github.com/theskumar/python-dotenv) и
 [Ruff](https://docs.astral.sh/ruff/).

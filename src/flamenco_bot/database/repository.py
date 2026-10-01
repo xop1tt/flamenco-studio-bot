@@ -353,7 +353,7 @@ class PostgresRepository:
                 await connection.execute(
                     """
                     SELECT pg_advisory_xact_lock(
-                        hashtextextended($1::text || ':' || $2, 0)
+                        hashtextextended($1::BIGINT::TEXT || ':' || $2::TEXT, 0)
                     )
                     """,
                     telegram_id,
