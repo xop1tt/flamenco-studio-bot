@@ -21,6 +21,7 @@ from .routers.bookings import router as bookings_router
 from .routers.packages import router as packages_router
 from .routers.schedule import router as schedule_router
 from .routers.support import router as support_router
+from .routers.users import router as users_router
 
 
 logger = logging.getLogger("bot.api")
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(packages_router)
     app.include_router(bookings_router)
     app.include_router(support_router)
+    app.include_router(users_router)
 
     @app.get("/api/health")
     async def health() -> dict:

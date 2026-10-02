@@ -15,6 +15,7 @@ from ..database.repository import (
     ClassSlot,
     SupportTicket,
     UserBooking,
+    UserProfile,
     WebUserRecord,
 )
 from ..payments import LessonPackage
@@ -188,3 +189,33 @@ class SupportTicketResponse(BaseModel):
             updated_at=ticket.updated_at,
             last_message=ticket.last_message,
         )
+
+
+class ProfileResponse(BaseModel):
+    """Данные профиля из ``bot_users`` — те же, что видит сам бот в /account.
+
+    Не путать с ``UserResponse``: это данные веб-аккаунта (``users``),
+    а это — данные привязанного Telegram-профиля (баланс занятий и т.д.).
+    """
+
+    telegram_id: int
+    user_name: str
+    phone: Optional[str]
+    lesson_credits: int
+    registered_at: datetime
+    is_admin: bool
+
+    @classmethod
+    def from_record(cls, profile: UserProfile) -> "ProfileResponse":
+        return cls(
+            telegram_id=profile.telegram_id,
+            user_name=profile.user_name,
+            phone=profile.phone,
+            lesson_credits=profile.lesson_credits,
+            registered_at=profile.registered_at,
+            is_admin=profile.is_admin,
+        )
+
+
+class UpdateProfileNameRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=64)

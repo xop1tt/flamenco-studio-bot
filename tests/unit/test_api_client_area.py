@@ -152,6 +152,34 @@ class ClientAreaApiTests(unittest.TestCase):
         response = self.client.post("/api/support", json={"body": "   "})
         self.assertEqual(response.status_code, 422)
 
+    def test_profile_requires_linked_telegram(self):
+        self._register_email_only()
+        response = self.client.get("/api/users/me/profile")
+        self.assertEqual(response.status_code, 409)
+
+    def test_profile_reports_bot_user_data(self):
+        self._login_with_telegram(telegram_id=321)
+        response = self.client.get("/api/users/me/profile")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["telegram_id"], 321)
+        self.assertEqual(body["lesson_credits"], 0)
+        self.assertIsNone(body["phone"])
+        self.assertFalse(body["is_admin"])
+
+    def test_profile_name_can_be_updated(self):
+        self._login_with_telegram(telegram_id=654)
+        response = self.client.patch(
+            "/api/users/me/profile", json={"user_name": "Новое имя"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_name"], "Новое имя")
+
+    def test_profile_name_update_rejects_empty_value(self):
+        self._login_with_telegram(telegram_id=987)
+        response = self.client.patch("/api/users/me/profile", json={"user_name": ""})
+        self.assertEqual(response.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()
