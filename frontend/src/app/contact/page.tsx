@@ -18,11 +18,11 @@ export default function ContactPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-12">
       <h1 className="text-3xl font-bold">Контакты</h1>
-      <p className="text-[var(--text-secondary)]">
+      <p className="text-base leading-relaxed text-[var(--text-secondary)]">
         Свяжитесь со студией любым удобным способом — поможем выбрать
         направление и время занятия.
       </p>
-      <dl className="flex flex-col gap-4 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm">
+      <dl className="flex flex-col gap-4 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-[var(--shadow-card)]">
         <ContactRow label="Адрес" value={CONTACTS.address} />
         <ContactRow label="Телефон" value={CONTACTS.phone} />
         <ContactRow label="Telegram" value={CONTACTS.telegram} />

@@ -20,10 +20,10 @@ export default async function DirectionsPage() {
         {directions.map((direction) => (
           <div
             key={direction.key}
-            className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm"
+            className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]"
           >
             <h2 className="mb-2 text-xl font-semibold">{direction.label}</h2>
-            <p className="mb-4 text-[var(--text-secondary)]">
+            <p className="mb-4 text-base leading-relaxed text-[var(--text-secondary)]">
               {direction.description}
             </p>
             <Link

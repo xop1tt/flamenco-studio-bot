@@ -21,7 +21,7 @@ export default async function AccountLayout({
       <h1 className="text-3xl font-bold">Личный кабинет</h1>
       <AccountNav />
       {currentUser.telegram_id === null ? (
-        <p className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 text-[var(--text-secondary)] shadow-sm">
+        <p className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 text-base leading-relaxed text-[var(--text-secondary)] shadow-[var(--shadow-card)]">
           Привяжите Telegram к аккаунту, чтобы видеть профиль, баланс занятий
           и записи — на сайте пока нет формы для этого, напишите в поддержку
           через бота.

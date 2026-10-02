@@ -17,29 +17,62 @@ export default async function HomePage() {
   ]);
   const upcoming = schedule.slice(0, 4);
 
+  const whyUs = [
+    {
+      icon: "👥",
+      text: "Небольшие группы и внимание к технике каждого ученика.",
+    },
+    {
+      icon: "🌱",
+      text: "Занятия для любого уровня — от первого шага до постановки номера.",
+    },
+    {
+      icon: "🗓️",
+      text: "Гибкое расписание и возможность индивидуальных занятий.",
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-16 px-4 py-12">
       <section className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           Flamenco Studio
         </h1>
-        <p className="max-w-xl text-lg text-[var(--text-secondary)]">
+        <p className="max-w-xl text-lg leading-relaxed text-[var(--text-secondary)]">
           Танец фламенко для начинающих и продолжающих: живой ритм, работа с
           телом и характером — в группе или индивидуально.
         </p>
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <Link
             href="/schedule"
-            className="rounded-md bg-[var(--primary)] px-5 py-2.5 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
+            className="rounded-full bg-[var(--primary)] px-6 py-3 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
           >
             Смотреть расписание
           </Link>
           <Link
             href="/packages"
-            className="rounded-md border border-[var(--border-strong)] px-5 py-2.5 font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-6 py-3 font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             Абонементы
           </Link>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-5xl rounded-3xl bg-[var(--surface-secondary)] p-8 sm:p-10">
+        <h2 className="mb-6 text-center text-2xl font-semibold">
+          Почему Flamenco Studio
+        </h2>
+        <div className="grid gap-6 sm:grid-cols-3">
+          {whyUs.map((item) => (
+            <div key={item.text} className="flex flex-col items-center gap-3 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary-light)] text-2xl">
+                {item.icon}
+              </span>
+              <p className="text-base leading-relaxed text-[var(--text-secondary)]">
+                {item.text}
+              </p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -49,29 +82,14 @@ export default async function HomePage() {
           {directions.map((direction) => (
             <div
               key={direction.key}
-              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-5 shadow-sm"
+              className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-5 shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]"
             >
               <h3 className="mb-2 font-medium">{direction.label}</h3>
-              <p className="text-sm text-[var(--text-secondary)]">
+              <p className="text-base text-[var(--text-secondary)]">
                 {direction.description}
               </p>
             </div>
           ))}
-        </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-5xl">
-        <h2 className="mb-2 text-2xl font-semibold">Почему Flamenco Studio</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Небольшие группы и внимание к технике каждого ученика.
-          </p>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Занятия для любого уровня — от первого шага до постановки номера.
-          </p>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Гибкое расписание и возможность индивидуальных занятий.
-          </p>
         </div>
       </section>
 
@@ -101,15 +119,17 @@ export default async function HomePage() {
         <PackagesGrid packages={packages.slice(0, 3)} />
       </section>
 
-      <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-8 text-center shadow-sm">
-        <h2 className="text-2xl font-semibold">Готовы начать?</h2>
+      <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-3xl bg-[var(--primary-light)] p-10 text-center shadow-[var(--shadow-card)]">
+        <h2 className="text-2xl font-semibold text-[var(--accent-dark)]">
+          Готовы начать?
+        </h2>
         <p className="text-[var(--text-secondary)]">
           Выберите удобное занятие в расписании или напишите нам — поможем
           выбрать направление.
         </p>
         <Link
           href="/contact"
-          className="mt-2 rounded-md bg-[var(--primary)] px-5 py-2.5 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
+          className="mt-2 rounded-full bg-[var(--primary)] px-6 py-3 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
         >
           Связаться со студией
         </Link>

@@ -60,7 +60,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
       {payments.map((payment) => (
         <li
           key={payment.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)]"
         >
           <div className="flex flex-col gap-1">
             <span className="font-medium">{payment.package_title}</span>
@@ -78,7 +78,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
                 <input type="hidden" name="payment_id" value={payment.id} />
                 <button
                   type="submit"
-                  className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-1.5 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                   Проверить оплату
                 </button>

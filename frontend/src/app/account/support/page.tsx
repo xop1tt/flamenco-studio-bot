@@ -27,7 +27,7 @@ export default async function AccountSupportPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <section className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm">
+      <section className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-[var(--shadow-card)]">
         <h2 className="mb-4 text-xl font-semibold">Новое обращение</h2>
         {submitted && (
           <p className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-800">
@@ -46,11 +46,11 @@ export default async function AccountSupportPage({
             maxLength={2000}
             rows={4}
             placeholder="Опишите вопрос..."
-            className="rounded-md border border-[var(--border-strong)] p-3 text-sm focus:border-[var(--primary)] focus:outline-none"
+            className="rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] p-3 text-base focus:border-[var(--primary)] focus:outline-none"
           />
           <button
             type="submit"
-            className="self-start rounded-md bg-[var(--primary)] px-5 py-2 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
+            className="self-start rounded-full bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
           >
             Отправить
           </button>
@@ -66,7 +66,7 @@ export default async function AccountSupportPage({
             {tickets.map((ticket) => (
               <li
                 key={ticket.id}
-                className="flex flex-col gap-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm"
+                className="flex flex-col gap-1 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)]"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">Обращение №{ticket.id}</span>

@@ -15,7 +15,7 @@ export function ScheduleCard({ slot }: { slot: ClassSlot }) {
   const soldOut = slot.status !== "open" || slot.remaining <= 0;
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm">
+    <li className="flex flex-col gap-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium">{slot.class_label}</span>
         <span className="text-sm text-[var(--text-secondary)]">
