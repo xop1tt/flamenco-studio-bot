@@ -108,6 +108,8 @@ class FakeRepository:
         self.update_class_slot_capacity = AsyncMock(return_value=True)
         self.close_class_slot = AsyncMock(return_value=True)
         self.book_class_slot = AsyncMock()
+        self.cancel_class_slot_booking = AsyncMock(return_value=True)
+        self.list_bookings_for_telegram_id = AsyncMock(return_value=[])
         self.list_admin_ids = AsyncMock(return_value=[])
         self.create_support_message = AsyncMock(return_value=(1, True))
         self.reply_support_ticket = AsyncMock(return_value=1001)

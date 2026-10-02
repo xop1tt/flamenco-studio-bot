@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getPackages, getSchedule } from "@/lib/api";
 import { ScheduleList } from "@/components/ScheduleList";
 import { PackagesGrid } from "@/components/PackagesGrid";
-import { DIRECTIONS } from "@/lib/directions";
+import { getDirections } from "@/lib/directions";
 
 // Расписание и абонементы меняются (места заполняются, цены может менять
 // студия), поэтому страницу нельзя кэшировать статически на этапе сборки —
@@ -10,9 +10,10 @@ import { DIRECTIONS } from "@/lib/directions";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [schedule, packages] = await Promise.all([
+  const [schedule, packages, directions] = await Promise.all([
     getSchedule(),
     getPackages(),
+    getDirections(),
   ]);
   const upcoming = schedule.slice(0, 4);
 
@@ -45,7 +46,7 @@ export default async function HomePage() {
       <section className="mx-auto w-full max-w-5xl">
         <h2 className="mb-6 text-2xl font-semibold">Направления</h2>
         <div className="grid gap-4 sm:grid-cols-3">
-          {DIRECTIONS.map((direction) => (
+          {directions.map((direction) => (
             <div
               key={direction.key}
               className="rounded-lg border border-black/10 p-5"

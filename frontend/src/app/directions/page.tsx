@@ -1,17 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DIRECTIONS } from "@/lib/directions";
+import { getDirections } from "@/lib/directions";
 
 export const metadata: Metadata = {
   title: "Направления",
 };
 
-export default function DirectionsPage() {
+// Подписи направлений приходят с backend — страницу нельзя кэшировать
+// статически на этапе сборки, см. frontend/README.md.
+export const dynamic = "force-dynamic";
+
+export default async function DirectionsPage() {
+  const directions = await getDirections();
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-12">
       <h1 className="text-3xl font-bold">Направления</h1>
       <div className="flex flex-col gap-6">
-        {DIRECTIONS.map((direction) => (
+        {directions.map((direction) => (
           <div
             key={direction.key}
             className="rounded-lg border border-black/10 p-6"

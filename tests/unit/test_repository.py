@@ -197,9 +197,13 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
             if "CREATE TABLE IF NOT EXISTS bot_users" in query
         ]
         self.assertEqual(len(migration_calls), 1)
+        expected_versions = {
+            migration.name.split("_", 1)[0]
+            for migration in MIGRATIONS_DIRECTORY.glob("*.sql")
+        }
         self.assertEqual(
             self.pool.connection.applied_migrations,
-            {"001", "002", "003", "004", "005"},
+            expected_versions,
         )
         await self.repository.close()
 
@@ -245,6 +249,32 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await repository.complete_request(1))
         self.assertEqual(await repository.list_pending_requests(), [])
         await repository.close()
+
+    async def test_in_memory_web_session_round_trip_and_expiry(self):
+        repository = InMemoryRepository()
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+
+        await repository.create_web_session(42, "token-a", future)
+        self.assertEqual(await repository.get_web_session_user_id("token-a"), 42)
+        self.assertIsNone(await repository.get_web_session_user_id("unknown-token"))
+
+        past = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await repository.create_web_session(42, "token-expired", past)
+        self.assertIsNone(await repository.get_web_session_user_id("token-expired"))
+
+        await repository.delete_web_session("token-a")
+        self.assertIsNone(await repository.get_web_session_user_id("token-a"))
+
+    async def test_in_memory_creating_a_session_prunes_the_users_expired_ones(self):
+        repository = InMemoryRepository()
+        past = datetime.now(timezone.utc) - timedelta(seconds=1)
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+
+        await repository.create_web_session(42, "stale-token", past)
+        await repository.create_web_session(42, "fresh-token", future)
+
+        self.assertNotIn("stale-token", repository._web_sessions)
+        self.assertEqual(await repository.get_web_session_user_id("fresh-token"), 42)
 
     async def test_in_memory_payment_adds_credits_only_once_and_tracks_activity(self):
         repository = InMemoryRepository()
@@ -345,6 +375,68 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history[0].package_key, "pack_4")
         self.assertEqual(history[0].status, "pending")
         self.assertEqual(history[1].package_key, "single")
+
+    async def test_in_memory_lists_only_pending_payments_older_than_cutoff(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        await repository.get_or_create_profile(1002, "Мария", False)
+
+        stale_attempt = await repository.begin_lesson_payment_attempt(
+            1001, "single", "Разовое занятие", 1, 100000
+        )
+        stale_payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="single",
+            package_title="Разовое занятие",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="provider-payment-stale",
+            confirmation_url="https://pay.example.test/1",
+            idempotence_key=stale_attempt.idempotence_key,
+        )
+        # Задним числом "состарим" платёж — так же, как если бы он
+        # действительно провисел в pending дольше порога сверки.
+        repository._payment_created_at[stale_payment.id] = datetime.now(
+            timezone.utc
+        ) - timedelta(hours=1)
+
+        fresh_attempt = await repository.begin_lesson_payment_attempt(
+            1002, "single", "Разовое занятие", 1, 100000
+        )
+        await repository.create_lesson_payment(
+            telegram_id=1002,
+            package_key="single",
+            package_title="Разовое занятие",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="provider-payment-fresh",
+            confirmation_url="https://pay.example.test/2",
+            idempotence_key=fresh_attempt.idempotence_key,
+        )
+
+        succeeded_attempt = await repository.begin_lesson_payment_attempt(
+            1001, "pack_4", "Абонемент на 4 занятия", 4, 360000
+        )
+        succeeded_payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+            provider_payment_id="provider-payment-succeeded",
+            confirmation_url="https://pay.example.test/3",
+            idempotence_key=succeeded_attempt.idempotence_key,
+        )
+        repository._payment_created_at[succeeded_payment.id] = datetime.now(
+            timezone.utc
+        ) - timedelta(hours=1)
+        await repository.complete_lesson_payment(succeeded_payment.id, 1001)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        pending = await repository.list_pending_lesson_payments_older_than(cutoff)
+
+        self.assertEqual([item.id for item in pending], [stale_payment.id])
+        self.assertEqual(pending[0].telegram_id, 1001)
 
     async def test_in_memory_refund_reserves_and_reconciles_credits_once(self):
         repository = InMemoryRepository()

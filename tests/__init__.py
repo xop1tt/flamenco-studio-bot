@@ -1,8 +1,7 @@
 """Переменные окружения, нужные для одного только запуска тестов.
 
-``flamenco_bot.config.Config`` и ``flamenco_bot.api.config.WebConfig``
-проверяют обязательные переменные (``BOT_TOKEN``, ``SESSION_SECRET_KEY``) уже
-на этапе импорта модуля — у тестов, которые импортируют
+``flamenco_bot.config.Config`` проверяет обязательную переменную
+(``BOT_TOKEN``) уже на этапе импорта модуля — у тестов, которые импортируют
 ``flamenco_bot.api.app`` (например, ``test_api_auth.py``), это происходит
 раньше, чем сам тест успевает что-то настроить.
 
@@ -24,6 +23,3 @@ from dotenv import load_dotenv
 load_dotenv()
 
 os.environ.setdefault("BOT_TOKEN", "123456:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-os.environ.setdefault(
-    "SESSION_SECRET_KEY", "test-session-secret-key-not-for-production-use"
-)

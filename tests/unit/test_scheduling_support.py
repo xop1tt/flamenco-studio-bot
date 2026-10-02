@@ -2,10 +2,30 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from flamenco_bot.database.repository import (
+    BookingCooldownError,
+    BookingNotFoundError,
+    CancellationWindowExpiredError,
     InMemoryRepository,
+    InsufficientLessonCreditsError,
     SlotUnavailableError,
+    UserProfile,
 )
 from flamenco_bot.runtime.security import SupportRateLimiter
+
+
+def _grant_credits(
+    repository: InMemoryRepository, telegram_id: int, credits: int
+) -> None:
+    """Выдаёт lesson_credits напрямую — бронирование теперь их списывает."""
+    profile = repository._profiles[telegram_id]
+    repository._profiles[telegram_id] = UserProfile(
+        telegram_id=profile.telegram_id,
+        phone=profile.phone,
+        user_name=profile.user_name,
+        registered_at=profile.registered_at,
+        is_admin=profile.is_admin,
+        lesson_credits=credits,
+    )
 
 
 class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
@@ -13,6 +33,8 @@ class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
         repository = InMemoryRepository()
         await repository.get_or_create_profile(1001, "Анна", False)
         await repository.get_or_create_profile(1002, "Мария", False)
+        _grant_credits(repository, 1001, 1)
+        _grant_credits(repository, 1002, 1)
         slot = await repository.create_class_slot(
             "beginner",
             datetime.now(timezone.utc) + timedelta(days=1),
@@ -36,6 +58,8 @@ class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
         repository = InMemoryRepository()
         await repository.get_or_create_profile(1001, "Анна", False)
         await repository.get_or_create_profile(1002, "Мария", False)
+        _grant_credits(repository, 1001, 1)
+        _grant_credits(repository, 1002, 1)
         slot = await repository.create_class_slot(
             "individual",
             datetime.now(timezone.utc) + timedelta(days=1),
@@ -95,6 +119,8 @@ class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
         repository = InMemoryRepository()
         await repository.get_or_create_profile(1001, "Анна", False)
         await repository.get_or_create_profile(1002, "Мария", False)
+        _grant_credits(repository, 1001, 1)
+        _grant_credits(repository, 1002, 1)
         slot = await repository.create_class_slot(
             "beginner",
             datetime.now(timezone.utc) + timedelta(days=1),
@@ -123,6 +149,148 @@ class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0].id, ticket_id)
         self.assertEqual(tickets[0].status, "closed")
+
+
+class BookingCreditsAndCancellationTests(unittest.IsolatedAsyncioTestCase):
+    """Бронирование теперь списывает lesson_credit; отмена — возвращает его.
+
+    Правило подтверждено владельцем продукта при аудите (не придумано в
+    коде): 1 credit за запись, отмена не позднее 24ч до начала, 12ч
+    кулдаун на повторную запись тем же пользователем после отмены.
+    """
+
+    async def _repository_with_slot(self, capacity=1, starts_in=timedelta(days=2)):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + starts_in,
+            capacity,
+            77,
+        )
+        return repository, slot
+
+    async def test_booking_without_credits_is_rejected(self):
+        repository, slot = await self._repository_with_slot()
+
+        with self.assertRaises(InsufficientLessonCreditsError):
+            await repository.book_class_slot(slot.id, 1001)
+        self.assertEqual(await repository.get_lesson_credits(1001), 0)
+
+    async def test_booking_debits_exactly_one_credit(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 2)
+
+        await repository.book_class_slot(slot.id, 1001)
+
+        self.assertEqual(await repository.get_lesson_credits(1001), 1)
+
+    async def test_duplicate_booking_does_not_debit_twice(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 2)
+
+        await repository.book_class_slot(slot.id, 1001)
+        repeated = await repository.book_class_slot(slot.id, 1001)
+
+        self.assertTrue(repeated.already_booked)
+        self.assertEqual(await repository.get_lesson_credits(1001), 1)
+
+    async def test_cancellation_refunds_the_credit_and_frees_the_seat(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 1)
+        await repository.book_class_slot(slot.id, 1001)
+
+        cancelled = await repository.cancel_class_slot_booking(slot.id, 1001)
+
+        self.assertTrue(cancelled)
+        self.assertEqual(await repository.get_lesson_credits(1001), 1)
+        self.assertEqual(
+            (await repository.list_class_slots())[0].booked_count,
+            0,
+        )
+
+    async def test_cancelling_twice_is_idempotent_and_does_not_double_refund(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 1)
+        await repository.book_class_slot(slot.id, 1001)
+
+        first = await repository.cancel_class_slot_booking(slot.id, 1001)
+        second = await repository.cancel_class_slot_booking(slot.id, 1001)
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(await repository.get_lesson_credits(1001), 1)
+
+    async def test_cancelling_a_booking_that_does_not_exist_raises(self):
+        repository, slot = await self._repository_with_slot()
+
+        with self.assertRaises(BookingNotFoundError):
+            await repository.cancel_class_slot_booking(slot.id, 1001)
+
+    async def test_cancellation_within_24h_of_start_is_rejected(self):
+        repository, slot = await self._repository_with_slot(
+            starts_in=timedelta(hours=1)
+        )
+        _grant_credits(repository, 1001, 1)
+        await repository.book_class_slot(slot.id, 1001)
+
+        with self.assertRaises(CancellationWindowExpiredError):
+            await repository.cancel_class_slot_booking(slot.id, 1001)
+        # Кредит не должен уходить, если отмена отклонена.
+        self.assertEqual(await repository.get_lesson_credits(1001), 0)
+
+    async def test_rebooking_right_after_cancellation_hits_cooldown(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 2)
+        await repository.book_class_slot(slot.id, 1001)
+        await repository.cancel_class_slot_booking(slot.id, 1001)
+
+        with self.assertRaises(BookingCooldownError):
+            await repository.book_class_slot(slot.id, 1001)
+        # Кредит, возвращённый при отмене, не тронут — попытка не прошла.
+        self.assertEqual(await repository.get_lesson_credits(1001), 2)
+
+    async def test_rebooking_after_cooldown_expires_succeeds_and_debits_again(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 2)
+        await repository.book_class_slot(slot.id, 1001)
+        await repository.cancel_class_slot_booking(slot.id, 1001)
+        # Симулируем, что кулдаун истёк.
+        key = (slot.id, 1001)
+        stale = repository._class_bookings[key]
+        repository._class_bookings[key] = type(stale)(
+            id=stale.id,
+            status=stale.status,
+            updated_at=datetime.now(timezone.utc) - timedelta(hours=13),
+        )
+
+        rebooked = await repository.book_class_slot(slot.id, 1001)
+
+        self.assertFalse(rebooked.already_booked)
+        self.assertEqual(await repository.get_lesson_credits(1001), 1)
+
+    async def test_cooldown_only_blocks_the_same_user_not_others(self):
+        repository, slot = await self._repository_with_slot(capacity=2)
+        await repository.get_or_create_profile(1002, "Мария", False)
+        _grant_credits(repository, 1001, 2)
+        _grant_credits(repository, 1002, 1)
+        await repository.book_class_slot(slot.id, 1001)
+        await repository.cancel_class_slot_booking(slot.id, 1001)
+
+        other_user_booking = await repository.book_class_slot(slot.id, 1002)
+
+        self.assertFalse(other_user_booking.already_booked)
+
+    async def test_my_bookings_reflects_cancelled_status(self):
+        repository, slot = await self._repository_with_slot()
+        _grant_credits(repository, 1001, 1)
+        await repository.book_class_slot(slot.id, 1001)
+        await repository.cancel_class_slot_booking(slot.id, 1001)
+
+        bookings = await repository.list_bookings_for_telegram_id(1001)
+
+        self.assertEqual(len(bookings), 1)
+        self.assertEqual(bookings[0].booking_status, "cancelled")
 
 
 class SupportRateLimiterTests(unittest.TestCase):

@@ -12,7 +12,6 @@ dependencies = [
     "aiohttp==3.14.3",
     "asyncpg==0.31.0",
     "fastapi==0.128.8",
-    "pyjwt==2.15.1",
     "python-dotenv==1.2.3",
     "uvicorn==0.39.0",
 ]
@@ -32,3 +31,10 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F"]
+
+[tool.pytest.ini_options]
+# Делает запуск тестов независимым от editable-install `.pth` в site-packages:
+# на macOS с синхронизацией iCloud Drive (Desktop/Documents) эти `.pth`-файлы
+# периодически помечаются системой как "hidden" (chflags), из-за чего
+# `site.py` их пропускает и `import flamenco_bot` падает — не ошибка кода.
+pythonpath = ["src"]

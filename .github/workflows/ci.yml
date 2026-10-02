@@ -31,7 +31,6 @@ jobs:
       BOT_TOKEN: 123456:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
       ADMINS: 123456789
       ENV: development
-      SESSION_SECRET_KEY: ci-test-session-secret-key-not-for-production-use
       TEST_DATABASE_URL: postgresql://bot:bot@localhost:5432/bot
     steps:
       - uses: actions/checkout@v7

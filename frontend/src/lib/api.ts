@@ -26,6 +26,11 @@ export type LessonPackage = {
   price_rub: number;
 };
 
+export type ClassFormat = {
+  key: string;
+  label: string;
+};
+
 async function apiFetch<T>(path: string): Promise<T | null> {
   try {
     const response = await fetch(`${API_BASE_URL}${path}`);
@@ -47,4 +52,8 @@ export async function getSchedule(classKey?: string): Promise<ClassSlot[]> {
 
 export async function getPackages(): Promise<LessonPackage[]> {
   return (await apiFetch<LessonPackage[]>("/api/packages")) ?? [];
+}
+
+export async function getClasses(): Promise<ClassFormat[]> {
+  return (await apiFetch<ClassFormat[]>("/api/classes")) ?? [];
 }

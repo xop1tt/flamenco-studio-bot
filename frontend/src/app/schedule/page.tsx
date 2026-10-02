@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSchedule } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { BookableScheduleList } from "@/components/BookableScheduleList";
-import { DIRECTIONS } from "@/lib/directions";
+import { getDirections } from "@/lib/directions";
 
 export const metadata: Metadata = {
   title: "Расписание",
@@ -30,7 +30,8 @@ export default async function SchedulePage({
     already,
     book_error: bookError,
   } = await searchParams;
-  const activeDirection = DIRECTIONS.find(
+  const directions = await getDirections();
+  const activeDirection = directions.find(
     (direction) => direction.key === classKey,
   );
   const [schedule, currentUser] = await Promise.all([
@@ -57,7 +58,7 @@ export default async function SchedulePage({
 
       <div className="flex flex-wrap gap-2">
         <FilterLink label="Все направления" active={!activeDirection} />
-        {DIRECTIONS.map((direction) => (
+        {directions.map((direction) => (
           <FilterLink
             key={direction.key}
             label={direction.label}

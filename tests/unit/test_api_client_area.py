@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 
 from flamenco_bot.api.app import create_app
 from flamenco_bot.database import InMemoryRepository
-from flamenco_bot.runtime.security import SupportRateLimiter
+from flamenco_bot.database.repository import UserProfile
+from flamenco_bot.runtime.security import AuthRateLimiter, SupportRateLimiter
 from flamenco_bot.services import AuthService
 
 
 BOT_TOKEN = "123456:test-token"
-SESSION_SECRET_KEY = "test-session-secret-at-least-32-bytes-long"
 
 
 def sign_telegram_payload(payload, bot_token=BOT_TOKEN):
@@ -41,9 +41,9 @@ class ClientAreaApiTests(unittest.TestCase):
         app = create_app()
         app.state.repository = self.repository
         app.state.auth_service = AuthService(self.repository, BOT_TOKEN)
-        app.state.session_secret_key = SESSION_SECRET_KEY
         app.state.bot = AsyncMock()
         app.state.support_limiter = SupportRateLimiter()
+        app.state.auth_limiter = AuthRateLimiter()
         self.client = TestClient(app, base_url="https://testserver")
 
     def _login_with_telegram(self, telegram_id=555):
@@ -72,6 +72,18 @@ class ClientAreaApiTests(unittest.TestCase):
             admin_telegram_id=1,
         )
 
+    def _grant_credits(self, telegram_id, credits=1):
+        """Выдаёт lesson_credits — бронирование теперь списывает их напрямую."""
+        profile = self.repository._profiles[telegram_id]
+        self.repository._profiles[telegram_id] = UserProfile(
+            telegram_id=profile.telegram_id,
+            phone=profile.phone,
+            user_name=profile.user_name,
+            registered_at=profile.registered_at,
+            is_admin=profile.is_admin,
+            lesson_credits=credits,
+        )
+
     def test_schedule_is_public_and_lists_upcoming_slots(self):
         import asyncio
 
@@ -93,6 +105,16 @@ class ClientAreaApiTests(unittest.TestCase):
         keys = {package["key"] for package in response.json()}
         self.assertIn("single", keys)
 
+    def test_classes_lists_catalog_without_auth(self):
+        response = self.client.get("/api/classes")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            {item["key"] for item in body},
+            {"beginner", "intermediate", "individual"},
+        )
+        self.assertIn({"key": "beginner", "label": "Фламенко для начинающих"}, body)
+
     def test_booking_requires_login(self):
         response = self.client.post("/api/bookings", json={"slot_id": 1})
         self.assertEqual(response.status_code, 401)
@@ -107,6 +129,7 @@ class ClientAreaApiTests(unittest.TestCase):
 
         slot = asyncio.run(self._create_open_slot())
         self._login_with_telegram(telegram_id=777)
+        self._grant_credits(777)
 
         response = self.client.post("/api/bookings", json={"slot_id": slot.id})
         self.assertEqual(response.status_code, 201)
@@ -124,10 +147,12 @@ class ClientAreaApiTests(unittest.TestCase):
 
         slot = asyncio.run(self._create_open_slot(capacity=1))
         self._login_with_telegram(telegram_id=111)
+        self._grant_credits(111)
         self.client.post("/api/bookings", json={"slot_id": slot.id})
         self.client.post("/api/auth/logout")
 
         self._login_with_telegram(telegram_id=222)
+        self._grant_credits(222)
         response = self.client.post("/api/bookings", json={"slot_id": slot.id})
         self.assertEqual(response.status_code, 409)
 

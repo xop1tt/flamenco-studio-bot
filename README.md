@@ -206,12 +206,10 @@ PostgreSQL с проверкой TLS.
    chmod 600 .env
    ```
 
-4. Заполните `BOT_TOKEN`, `DATABASE_URL`, `DATABASE_SSL_MODE=verify-full` и
-   `SESSION_SECRET_KEY` (генерируется командой
-   `python -c "import secrets; print(secrets.token_urlsafe(32))"` — без него
-   веб-API не запустится). Установите `ENV=production`. PostgreSQL должен быть
-   доступен серверу по TLS, а hostname в `DATABASE_URL` должен соответствовать
-   сертификату. Не используйте `DATABASE_SSL_MODE=disable` в production.
+4. Заполните `BOT_TOKEN`, `DATABASE_URL` и `DATABASE_SSL_MODE=verify-full`.
+   Установите `ENV=production`. PostgreSQL должен быть доступен серверу по
+   TLS, а hostname в `DATABASE_URL` должен соответствовать сертификату. Не
+   используйте `DATABASE_SSL_MODE=disable` в production.
    Значения ЮKassa оставьте пустыми, если платежи пока не включаются. Перед
    live-платежами замените демонстрационные цены, настройте
    чеки/фискализацию и проверьте тестовый сценарий.
@@ -265,7 +263,6 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 | `BOT_LOG_DIR` | Нет | Каталог файловых логов; по умолчанию `logs/` проекта |
 | `ENV` | Нет | `development` (по умолчанию) или `production` |
 | `ADMINS` | Нет | Список Telegram ID через запятую для системных уведомлений; **не выдаёт административные права** |
-| `SESSION_SECRET_KEY` | Для веб-API | Секрет подписи сессионных cookie сайта (`flamenco_bot.api`); сгенерировать: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Для сайта | Публичный `@username` бота для Telegram Login Widget (не секрет); нужен только `docker compose build` для `frontend`, см. `compose.yaml` |
 | `DATABASE_URL` | Для production | Строка подключения PostgreSQL |
 | `DATABASE_SSL_MODE` | Нет | `verify-full` по умолчанию; `disable` допустим только для локальной разработки |
@@ -572,6 +569,7 @@ GitHub Actions запускает unit- и PostgreSQL-интеграционны
 | Платёжная кнопка недоступна | Реквизиты ЮKassa и постоянное хранилище PostgreSQL |
 | Платёж не подтверждён | Статус в личном кабинете ЮKassa, ID платежа и записи `lesson_payments` |
 | PostgreSQL-тест пропущен | Отдельная переменная `TEST_DATABASE_URL`; пропуск без неё ожидаем |
+| `ModuleNotFoundError: flamenco_bot` при запуске скрипта напрямую (но не из `pytest`/VSCode) | На macOS с синхронизацией iCloud Desktop/Documents файл `__editable__*.pth` в `.venv/lib/.../site-packages/` может получить системный флаг `hidden` — `site.py` тогда его пропускает. Проверить: `ls -lO .venv/lib/python3.*/site-packages/__editable__*.pth`; снять: `chflags nohidden <файл>` (флаг может появиться повторно). Надёжнее — запускать с `PYTHONPATH=src` или исключить папку проекта из синхронизации iCloud. `pytest` (см. `pythonpath` в `pyproject.toml`) и тесты в VSCode (см. `.vscode/settings.json`) этой проблеме не подвержены |
 
 ## 🔗 Документация и внешние ресурсы
 

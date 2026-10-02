@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 
 from flamenco_bot.database.repository import (
+    MIGRATIONS_DIRECTORY,
     PaymentAttemptUnresolved,
     PostgresRepository,
     SlotUnavailableError,
@@ -82,6 +83,15 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             raise AssertionError("PostgreSQL test repository was not initialized")
         return self.repository
 
+    async def _grant_credits(self, telegram_id: int, credits: int) -> None:
+        """Выдаёт lesson_credits напрямую — бронирование теперь их списывает."""
+        async with self._require_pool().acquire() as connection:
+            await connection.execute(
+                "UPDATE bot_users SET lesson_credits = $2 WHERE telegram_id = $1",
+                telegram_id,
+                credits,
+            )
+
     async def _cleanup(self):
         if self.pool is not None:
             await self.pool.close()
@@ -107,9 +117,17 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             index_name = await connection.fetchval(
                 "SELECT to_regclass('lesson_requests_pending_created_idx')"
             )
+        # Сверяемся со списком файлов миграций, а не с застывшим списком версий,
+        # чтобы тест не расходился с реальностью при добавлении новых миграций
+        # (так уже произошло: здесь проверялись только "001"-"004", когда в
+        # каталоге появилась "005_web_accounts.sql").
+        expected_versions = sorted(
+            migration.name.split("_", 1)[0]
+            for migration in MIGRATIONS_DIRECTORY.glob("*.sql")
+        )
         self.assertEqual(
             [record["version"] for record in versions],
-            ["001", "002", "003", "004"],
+            expected_versions,
         )
         self.assertEqual(index_name, "lesson_requests_pending_created_idx")
 
@@ -351,3 +369,118 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await repository.close_support_ticket(ticket_id, self.telegram_id + 10),
             self.telegram_id,
         )
+
+    async def test_capacity_guard_trigger_rejects_overbooking_bypassing_repository(
+        self,
+    ):
+        """Защита на уровне БД, а не только в `book_class_slot`.
+
+        `book_class_slot` сам не допускает овербукинг (см. тест выше), но это
+        единственная линия защиты в коде. Здесь намеренно обходим репозиторий
+        и вставляем вторую подтверждённую запись в заполненный слот прямым
+        SQL — триггер `lesson_bookings_capacity_guard` (миграция 006) должен
+        отклонить её независимо от того, какой код инициировал запись.
+        """
+        repository = self._require_repository()
+        pool = self._require_pool()
+        other_telegram_id = self.telegram_id + 1
+        await repository.get_or_create_profile(
+            other_telegram_id,
+            "Second participant",
+            False,
+        )
+        slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + timedelta(days=1),
+            1,
+            self.telegram_id,
+        )
+        await self._grant_credits(self.telegram_id, 1)
+        await repository.book_class_slot(slot.id, self.telegram_id)
+
+        async with pool.acquire() as connection:
+            with self.assertRaisesRegex(asyncpg.PostgresError, "capacity exceeded"):
+                await connection.execute(
+                    "INSERT INTO lesson_bookings (slot_id, telegram_id) "
+                    "VALUES ($1, $2)",
+                    slot.id,
+                    other_telegram_id,
+                )
+
+    async def test_booking_credits_and_cancellation_lifecycle(self):
+        """Бизнес-правило, подтверждённое при аудите: 1 credit за запись,
+
+        возврат при отмене не позднее 24ч до начала, 12ч кулдаун на повторную
+        запись тем же пользователем. Защита от овербукинга (миграция 006) и
+        идемпотентность бронирования уже покрыты другими тестами — здесь
+        специально проверяется связка с балансом против настоящего Postgres.
+        """
+        from flamenco_bot.database.repository import (
+            BookingCooldownError,
+            CancellationWindowExpiredError,
+            InsufficientLessonCreditsError,
+        )
+
+        repository = self._require_repository()
+        far_slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + timedelta(days=2),
+            2,
+            self.telegram_id,
+        )
+
+        with self.assertRaises(InsufficientLessonCreditsError):
+            await repository.book_class_slot(far_slot.id, self.telegram_id)
+
+        await self._grant_credits(self.telegram_id, 1)
+        await repository.book_class_slot(far_slot.id, self.telegram_id)
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 0)
+
+        cancelled = await repository.cancel_class_slot_booking(
+            far_slot.id, self.telegram_id
+        )
+        self.assertTrue(cancelled)
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 1)
+        self.assertFalse(
+            await repository.cancel_class_slot_booking(far_slot.id, self.telegram_id)
+        )
+        self.assertEqual(await repository.get_lesson_credits(self.telegram_id), 1)
+
+        with self.assertRaises(BookingCooldownError):
+            await repository.book_class_slot(far_slot.id, self.telegram_id)
+
+        soon_slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + timedelta(hours=1),
+            1,
+            self.telegram_id,
+        )
+        await repository.book_class_slot(soon_slot.id, self.telegram_id)
+        with self.assertRaises(CancellationWindowExpiredError):
+            await repository.cancel_class_slot_booking(soon_slot.id, self.telegram_id)
+
+    async def test_web_session_round_trip_and_revocation(self):
+        """Серверные сессии (миграция 008) против настоящего Postgres.
+
+        Логика идентична покрытой в ``test_repository.py`` для
+        ``InMemoryRepository`` — здесь проверяется, что те же гарантии
+        (просрочка, отзыв) держатся на реальном ``NOW()``/constraint'ах, а
+        не только в питоновской имитации.
+        """
+        repository = self._require_repository()
+        web_user = await repository.get_or_create_web_user_from_telegram(
+            self.telegram_id, "Integration web user"
+        )
+
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+        await repository.create_web_session(web_user.id, "pg-token-a", future)
+        self.assertEqual(
+            await repository.get_web_session_user_id("pg-token-a"), web_user.id
+        )
+
+        past = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await repository.create_web_session(web_user.id, "pg-token-expired", past)
+        self.assertIsNone(await repository.get_web_session_user_id("pg-token-expired"))
+
+        await repository.delete_web_session("pg-token-a")
+        self.assertIsNone(await repository.get_web_session_user_id("pg-token-a"))

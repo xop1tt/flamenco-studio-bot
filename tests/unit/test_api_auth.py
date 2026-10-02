@@ -7,11 +7,11 @@ from fastapi.testclient import TestClient
 
 from flamenco_bot.api.app import create_app
 from flamenco_bot.database import InMemoryRepository
+from flamenco_bot.runtime.security import AuthRateLimiter
 from flamenco_bot.services import AuthService
 
 
 BOT_TOKEN = "123456:test-token"
-SESSION_SECRET_KEY = "test-session-secret-at-least-32-bytes-long"
 
 
 def sign_telegram_payload(payload, bot_token=BOT_TOKEN):
@@ -38,7 +38,7 @@ class ApiAuthTests(unittest.TestCase):
         app = create_app()
         app.state.repository = self.repository
         app.state.auth_service = AuthService(self.repository, BOT_TOKEN)
-        app.state.session_secret_key = SESSION_SECRET_KEY
+        app.state.auth_limiter = AuthRateLimiter()
         # https-схема нужна, чтобы httpx-клиент сохранял Secure-cookie сессии
         # между запросами — так же, как это делает настоящий браузер на сайте.
         self.client = TestClient(app, base_url="https://testserver")
@@ -184,6 +184,59 @@ class ApiAuthTests(unittest.TestCase):
             json=sign_telegram_payload(make_telegram_payload(telegram_id=4004)),
         )
         self.assertEqual(response.status_code, 409)
+
+    def test_login_is_rate_limited_per_ip_after_too_many_attempts(self):
+        self.client.post(
+            "/api/auth/register",
+            json={
+                "email": "anna@example.com",
+                "password": "correct-horse-battery-staple",
+                "display_name": "Анна",
+            },
+        )
+        self.client.post("/api/auth/logout")
+
+        # Регистрация выше уже заняла одну попытку из общего лимита на IP.
+        for _ in range(9):
+            response = self.client.post(
+                "/api/auth/login",
+                json={"email": "anna@example.com", "password": "wrong"},
+            )
+            self.assertEqual(response.status_code, 401)
+
+        blocked = self.client.post(
+            "/api/auth/login",
+            json={"email": "anna@example.com", "password": "wrong"},
+        )
+        self.assertEqual(blocked.status_code, 429)
+
+        # Лимит общий на IP, не на email — другой email тоже блокируется.
+        blocked_other_identity = self.client.post(
+            "/api/auth/login",
+            json={"email": "someone-else@example.com", "password": "wrong"},
+        )
+        self.assertEqual(blocked_other_identity.status_code, 429)
+
+    def test_register_is_rate_limited_per_ip_after_too_many_attempts(self):
+        for index in range(10):
+            self.client.post(
+                "/api/auth/register",
+                json={
+                    "email": "user{}@example.com".format(index),
+                    "password": "correct-horse-battery-staple",
+                    "display_name": "Анна",
+                },
+            )
+
+        blocked = self.client.post(
+            "/api/auth/register",
+            json={
+                "email": "one-more@example.com",
+                "password": "correct-horse-battery-staple",
+                "display_name": "Анна",
+            },
+        )
+        self.assertEqual(blocked.status_code, 429)
 
     def test_health_endpoint_reports_backend(self):
         response = self.client.get("/api/health")

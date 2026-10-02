@@ -10,12 +10,11 @@ from fastapi.testclient import TestClient
 from flamenco_bot.api.app import create_app
 from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.payments import YooKassaClient
-from flamenco_bot.runtime.security import SupportRateLimiter
+from flamenco_bot.runtime.security import AuthRateLimiter, SupportRateLimiter
 from flamenco_bot.services import AuthService
 
 
 BOT_TOKEN = "123456:test-token"
-SESSION_SECRET_KEY = "test-session-secret-at-least-32-bytes-long"
 
 
 def sign_telegram_payload(payload, bot_token=BOT_TOKEN):
@@ -34,9 +33,9 @@ class ApiPaymentsTests(unittest.TestCase):
         app = create_app()
         app.state.repository = self.repository
         app.state.auth_service = AuthService(self.repository, BOT_TOKEN)
-        app.state.session_secret_key = SESSION_SECRET_KEY
         app.state.bot = AsyncMock()
         app.state.support_limiter = SupportRateLimiter()
+        app.state.auth_limiter = AuthRateLimiter()
         # Незаполненный return_url => YooKassaClient.is_configured == False,
         # тот же способ, которым checkout остаётся недоступен без реального
         # подключения ЮKassa в продакшене (см. WebConfig.WEB_YOOKASSA_RETURN_URL).

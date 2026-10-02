@@ -11,10 +11,9 @@ export async function logoutAction(): Promise<void> {
   const session = cookieStore.get(SESSION_COOKIE_NAME);
   if (session) {
     try {
-      // Сессия — stateless JWT (backend ничего не хранит про неё сам по
-      // себе), так что вызов backend не обязателен для выхода на этом
-      // устройстве, но сохраняет один источник правды на случай, если
-      // backend когда-нибудь добавит отзыв сессий на своей стороне.
+      // Сессия хранится на backend (таблица web_sessions) — без этого
+      // вызова сама сессия осталась бы действительной (отозвана только
+      // здесь, в cookie этого браузера, но не на сервере).
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: "POST",
         headers: { cookie: `${SESSION_COOKIE_NAME}=${session.value}` },
@@ -137,6 +136,54 @@ export async function bookClassAction(formData: FormData): Promise<void> {
       already: booking.already_booked ? "1" : "0",
     }),
   );
+}
+
+export async function cancelBookingAction(formData: FormData): Promise<void> {
+  const slotId = Number(formData.get("slot_id"));
+
+  const cookieStore = await cookies();
+  const session = cookieStore.get(SESSION_COOKIE_NAME);
+  if (!session) {
+    redirect("/login");
+  }
+  if (!Number.isFinite(slotId) || slotId <= 0) {
+    redirect("/account/bookings?cancel_error=Некорректная запись");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/bookings/${slotId}`, {
+      method: "DELETE",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${session.value}` },
+    });
+  } catch (error) {
+    console.error("Booking cancellation request failed", error);
+    redirect(
+      "/account/bookings?cancel_error=" +
+        encodeURIComponent("Не удалось связаться с сервером. Попробуйте ещё раз."),
+    );
+  }
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
+
+  if (!response.ok) {
+    // Backend уже формулирует понятную причину (дедлайн отмены истёк,
+    // запись не найдена) — переиспользуем её вместо своего перевода.
+    let detail = "Не удалось отменить запись. Попробуйте ещё раз позже.";
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // используем сообщение по умолчанию
+    }
+    redirect(`/account/bookings?cancel_error=${encodeURIComponent(detail)}`);
+  }
+
+  redirect("/account/bookings?cancelled=1");
 }
 
 export async function startCheckoutAction(formData: FormData): Promise<void> {

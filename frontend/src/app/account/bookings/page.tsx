@@ -1,26 +1,50 @@
 import type { Metadata } from "next";
 import { getMyBookings, type UserBooking } from "@/lib/account";
+import { cancelBookingAction } from "@/lib/actions";
 import { formatClassDateTime } from "@/lib/format";
 
 export const metadata: Metadata = {
   title: "Мои занятия",
 };
 
-export default async function AccountBookingsPage() {
+// Баланс и статус записи меняются в реальном времени — не кэшируем статически.
+export const dynamic = "force-dynamic";
+
+type SearchParams = Promise<{
+  cancelled?: string;
+  cancel_error?: string;
+}>;
+
+export default async function AccountBookingsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const { cancelled, cancel_error: cancelError } = await searchParams;
   const bookings = await getMyBookings();
   const { upcoming, past } = splitByTime(bookings);
 
   return (
     <div className="flex flex-col gap-8">
+      {cancelled && (
+        <p className="rounded-md bg-green-50 p-3 text-sm text-green-800">
+          Запись отменена, занятие возвращено на баланс.
+        </p>
+      )}
+      {cancelError && (
+        <p className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+          {cancelError}
+        </p>
+      )}
+
       <section>
         <h2 className="mb-4 text-xl font-semibold">Предстоящие</h2>
         {upcoming.length === 0 ? (
           <p className="text-[var(--foreground)]/70">
-            Пока нет предстоящих занятий. Запись на сайте появится на
-            следующем этапе — выберите занятие в боте или в расписании.
+            Пока нет предстоящих занятий. Запишитесь в расписании.
           </p>
         ) : (
-          <BookingList bookings={upcoming} />
+          <BookingList bookings={upcoming} allowCancel />
         )}
       </section>
 
@@ -29,7 +53,7 @@ export default async function AccountBookingsPage() {
         {past.length === 0 ? (
           <p className="text-[var(--foreground)]/70">Пока нет истории занятий.</p>
         ) : (
-          <BookingList bookings={past} />
+          <BookingList bookings={past} allowCancel={false} />
         )}
       </section>
     </div>
@@ -50,7 +74,13 @@ function splitByTime(bookings: UserBooking[]) {
   };
 }
 
-function BookingList({ bookings }: { bookings: UserBooking[] }) {
+function BookingList({
+  bookings,
+  allowCancel,
+}: {
+  bookings: UserBooking[];
+  allowCancel: boolean;
+}) {
   return (
     <ul className="flex flex-col gap-3">
       {bookings.map((booking) => (
@@ -62,10 +92,24 @@ function BookingList({ bookings }: { bookings: UserBooking[] }) {
           <span className="text-sm text-[var(--foreground)]/70">
             {formatClassDateTime(booking.starts_at)}
           </span>
-          {booking.slot_status !== "open" && (
+          {booking.booking_status === "cancelled" ? (
+            <span className="text-sm text-[var(--foreground)]/60">Отменено</span>
+          ) : booking.slot_status !== "open" ? (
             <span className="text-sm text-[var(--foreground)]/60">
               Занятие отменено студией
             </span>
+          ) : (
+            allowCancel && (
+              <form action={cancelBookingAction}>
+                <input type="hidden" name="slot_id" value={booking.slot_id} />
+                <button
+                  type="submit"
+                  className="text-sm font-medium text-red-700 hover:underline"
+                >
+                  Отменить запись
+                </button>
+              </form>
+            )
           )}
         </li>
       ))}

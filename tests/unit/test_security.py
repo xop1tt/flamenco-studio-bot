@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 from aiogram.types import TelegramObject
 
-from flamenco_bot.runtime.security import SecurityMiddleware
+from flamenco_bot.runtime.security import AuthRateLimiter, SecurityMiddleware
 from tests.support import FakeMessage
 
 
@@ -91,3 +91,44 @@ class SecurityMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     def test_invalid_rate_limit_configuration_is_rejected(self):
         with self.assertRaises(ValueError):
             SecurityMiddleware(max_events=0)
+
+
+class AuthRateLimiterTests(unittest.TestCase):
+    def test_allows_up_to_the_configured_number_of_attempts(self):
+        limiter = AuthRateLimiter(max_attempts=2, window_seconds=5)
+
+        self.assertTrue(limiter.allow("1.2.3.4"))
+        self.assertTrue(limiter.allow("1.2.3.4"))
+        self.assertFalse(limiter.allow("1.2.3.4"))
+
+    def test_different_keys_have_independent_budgets(self):
+        limiter = AuthRateLimiter(max_attempts=1, window_seconds=5)
+
+        self.assertTrue(limiter.allow("1.2.3.4"))
+        self.assertFalse(limiter.allow("1.2.3.4"))
+        self.assertTrue(limiter.allow("5.6.7.8"))
+
+    def test_budget_resets_after_the_window_elapses(self):
+        current_time = [0.0]
+        limiter = AuthRateLimiter(
+            max_attempts=1, window_seconds=5, clock=lambda: current_time[0]
+        )
+
+        self.assertTrue(limiter.allow("1.2.3.4"))
+        self.assertFalse(limiter.allow("1.2.3.4"))
+        current_time[0] = 5.1
+        self.assertTrue(limiter.allow("1.2.3.4"))
+
+    def test_tracked_keys_are_bounded(self):
+        limiter = AuthRateLimiter(max_attempts=1, window_seconds=5, max_tracked_keys=2)
+
+        limiter.allow("1.1.1.1")
+        limiter.allow("2.2.2.2")
+        limiter.allow("3.3.3.3")
+
+        self.assertEqual(len(limiter._events), 2)
+        self.assertNotIn("1.1.1.1", limiter._events)
+
+    def test_invalid_configuration_is_rejected(self):
+        with self.assertRaises(ValueError):
+            AuthRateLimiter(max_attempts=0)
