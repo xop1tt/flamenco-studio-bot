@@ -48,7 +48,9 @@ async def submit_support_message(
             body=payload.body,
         )
     except SupportMessageInvalidError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+        ) from error
     except SupportRateLimitedError as error:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(error)) from error
     return SupportSubmissionResponse.from_submission(submission)

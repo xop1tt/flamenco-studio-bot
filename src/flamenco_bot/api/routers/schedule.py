@@ -22,7 +22,7 @@ async def list_schedule(
 ) -> List[ClassSlotResponse]:
     if class_key is not None and class_key not in CLASS_KEYS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестный формат занятия"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Неизвестный формат занятия"
         )
     slots = await repository.list_class_slots(class_key=class_key, limit=100)
     return [ClassSlotResponse.from_record(slot) for slot in slots]

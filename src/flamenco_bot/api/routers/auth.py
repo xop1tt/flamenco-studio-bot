@@ -64,9 +64,13 @@ async def register(
     except EmailAlreadyRegisteredError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     except WeakPasswordError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+        ) from error
     except ValueError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+        ) from error
     _set_session_cookie(response, user.id, secret_key)
     return UserResponse.from_record(user)
 
