@@ -26,7 +26,7 @@ export default async function PackagesPage({
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-bold">Абонементы</h1>
+      <h1 className="text-3xl font-semibold">Абонементы</h1>
       <p className="max-w-2xl text-[var(--text-secondary)]">
         Разовое занятие или абонемент на несколько занятий — цены и состав
         всегда актуальны, их определяет студия.
@@ -34,6 +34,13 @@ export default async function PackagesPage({
       {checkoutError && (
         <p className="rounded-md bg-red-50 p-3 text-sm text-red-800">
           {checkoutError}
+        </p>
+      )}
+      {!currentUser && (
+        <p className="text-sm text-[var(--text-secondary)]">
+          Вход через Telegram нужен, чтобы абонемент и записи сохранялись в
+          вашем профиле — это тот же аккаунт, что в боте студии, входить
+          заново для каждой записи не придётся.
         </p>
       )}
       <PackagesGrid packages={packages} isAuthenticated={currentUser !== null} />

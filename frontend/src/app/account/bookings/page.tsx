@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getMyBookings, type UserBooking } from "@/lib/account";
 import { cancelBookingAction } from "@/lib/actions";
 import { formatClassDateTime } from "@/lib/format";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export const metadata: Metadata = {
   title: "Мои занятия",
@@ -86,7 +87,7 @@ function BookingList({
       {bookings.map((booking) => (
         <li
           key={booking.id}
-          className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)]"
+          className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)]"
         >
           <span className="font-medium">{booking.class_label}</span>
           <span className="text-sm text-[var(--text-secondary)]">
@@ -102,12 +103,12 @@ function BookingList({
             allowCancel && (
               <form action={cancelBookingAction}>
                 <input type="hidden" name="slot_id" value={booking.slot_id} />
-                <button
-                  type="submit"
+                <ConfirmSubmitButton
+                  confirmMessage="Отменить запись? Занятие вернётся на баланс."
                   className="text-sm font-medium text-red-700 hover:underline"
                 >
                   Отменить запись
-                </button>
+                </ConfirmSubmitButton>
               </form>
             )
           )}

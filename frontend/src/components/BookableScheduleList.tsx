@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ClassSlot } from "@/lib/api";
 import { formatClassDateTime } from "@/lib/format";
 import { bookClassAction } from "@/lib/actions";
-import { availabilityLabel } from "./ScheduleList";
+import { availabilityLabel, EmptyScheduleNotice } from "./ScheduleList";
 
 type Props = {
   slots: ClassSlot[];
@@ -12,12 +12,7 @@ type Props = {
 
 export function BookableScheduleList({ slots, isAuthenticated, classKey }: Props) {
   if (slots.length === 0) {
-    return (
-      <p className="text-[var(--text-secondary)]">
-        Сейчас нет запланированных занятий. Загляните позже или напишите нам
-        — см. страницу «Контакты».
-      </p>
-    );
+    return <EmptyScheduleNotice />;
   }
 
   return (
@@ -47,7 +42,7 @@ function BookableScheduleCard({
   const soldOut = !bookable;
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{slot.class_label}</span>

@@ -1,5 +1,26 @@
+import Link from "next/link";
 import type { ClassSlot } from "@/lib/api";
 import { formatClassDateTime } from "@/lib/format";
+
+// Единый текст для пустого расписания — используется и на главной, и на
+// /schedule, чтобы не показывать разные сообщения об одном и том же факте
+// (то, что занятий пока нет).
+export function EmptyScheduleNotice() {
+  return (
+    <div className="glass-card flex flex-col items-start gap-3 rounded-2xl p-5">
+      <p className="text-[var(--text-secondary)]">
+        Подбираем ближайшие группы. Оставьте заявку — пришлём удобные
+        варианты, как только расписание сформируется.
+      </p>
+      <Link
+        href="/contact"
+        className="rounded-full bg-[var(--primary)] px-5 py-2 text-sm font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+      >
+        Написать, чтобы подобрать время
+      </Link>
+    </div>
+  );
+}
 
 export function availabilityLabel(slot: ClassSlot): string {
   if (slot.status !== "open") {
@@ -15,7 +36,7 @@ export function ScheduleCard({ slot }: { slot: ClassSlot }) {
   const soldOut = slot.status !== "open" || slot.remaining <= 0;
 
   return (
-    <li className="flex flex-col gap-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
+    <li className="flex flex-col gap-2 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium">{slot.class_label}</span>
         <span className="text-sm text-[var(--text-secondary)]">
@@ -37,12 +58,7 @@ export function ScheduleCard({ slot }: { slot: ClassSlot }) {
 
 export function ScheduleList({ slots }: { slots: ClassSlot[] }) {
   if (slots.length === 0) {
-    return (
-      <p className="text-[var(--text-secondary)]">
-        Сейчас нет запланированных занятий. Загляните позже или напишите нам
-        — см. страницу «Контакты».
-      </p>
-    );
+    return <EmptyScheduleNotice />;
   }
 
   return (

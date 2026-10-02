@@ -18,10 +18,10 @@ export default async function AccountLayout({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-bold">Личный кабинет</h1>
+      <h1 className="text-3xl font-semibold">Личный кабинет</h1>
       <AccountNav />
       {currentUser.telegram_id === null ? (
-        <p className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 text-base leading-relaxed text-[var(--text-secondary)] shadow-[var(--shadow-card)]">
+        <p className="rounded-2xl glass-card p-6 text-base leading-relaxed text-[var(--text-secondary)] shadow-[var(--shadow-card)]">
           Привяжите Telegram к аккаунту, чтобы видеть профиль, баланс занятий
           и записи — на сайте пока нет формы для этого, напишите в поддержку
           через бота.

@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { getPackages, getSchedule } from "@/lib/api";
-import { ScheduleList } from "@/components/ScheduleList";
-import { PackagesGrid } from "@/components/PackagesGrid";
+import { getSchedule } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
+import { BookableScheduleList } from "@/components/BookableScheduleList";
 import { getDirections } from "@/lib/directions";
+import { DirectionsStackCarousel } from "@/components/DirectionsStackCarousel";
+
+const TELEGRAM_BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
 
 // Расписание и абонементы меняются (места заполняются, цены может менять
 // студия), поэтому страницу нельзя кэшировать статически на этапе сборки —
@@ -10,12 +13,17 @@ import { getDirections } from "@/lib/directions";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [schedule, packages, directions] = await Promise.all([
+  const [schedule, directions, currentUser] = await Promise.all([
     getSchedule(),
-    getPackages(),
     getDirections(),
+    getCurrentUser(),
   ]);
   const upcoming = schedule.slice(0, 4);
+  // Пока расписание пустое, вести главный CTA в расписание некуда —
+  // ведём туда, где можно реально оставить заявку (см. аудит, пункт 3.2).
+  const heroCtaHref = schedule.length > 0 ? "/schedule" : "/contact";
+  const heroCtaLabel =
+    schedule.length > 0 ? "Записаться на занятие" : "Оставить заявку";
 
   const whyUs = [
     {
@@ -35,8 +43,8 @@ export default async function HomePage() {
   return (
     <div className="flex flex-col gap-16 px-4 py-12">
       <section className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-          Flamenco Studio
+        <h1 className="font-heading text-4xl font-bold tracking-tight sm:text-5xl">
+          Mirada Studio
         </h1>
         <p className="max-w-xl text-lg leading-relaxed text-[var(--text-secondary)]">
           Танец фламенко для начинающих и продолжающих: живой ритм, работа с
@@ -44,23 +52,27 @@ export default async function HomePage() {
         </p>
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <Link
-            href="/schedule"
-            className="rounded-full bg-[var(--primary)] px-6 py-3 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+            href={heroCtaHref}
+            className="rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
           >
-            Смотреть расписание
+            {heroCtaLabel}
           </Link>
-          <Link
-            href="/packages"
-            className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-6 py-3 font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
-            Абонементы
-          </Link>
+          {TELEGRAM_BOT_USERNAME && (
+            <a
+              href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-6 py-3 text-base font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              Написать в Telegram
+            </a>
+          )}
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-5xl rounded-3xl bg-[var(--surface-secondary)] p-8 sm:p-10">
+      <section className="glass-card mx-auto w-full max-w-5xl rounded-3xl p-8 shadow-[var(--shadow-card)] sm:p-10">
         <h2 className="mb-6 text-center text-2xl font-semibold">
-          Почему Flamenco Studio
+          Почему мы?
         </h2>
         <div className="grid gap-6 sm:grid-cols-3">
           {whyUs.map((item) => (
@@ -76,50 +88,21 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-5xl">
-        <h2 className="mb-6 text-2xl font-semibold">Направления</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {directions.map((direction) => (
-            <div
-              key={direction.key}
-              className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-5 shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]"
-            >
-              <h3 className="mb-2 font-medium">{direction.label}</h3>
-              <p className="text-base text-[var(--text-secondary)]">
-                {direction.description}
-              </p>
-            </div>
-          ))}
-        </div>
+      <section id="directions" className="mx-auto w-full max-w-5xl scroll-mt-24">
+        <h2 className="mb-6 text-center text-2xl font-semibold">Направления</h2>
+        <DirectionsStackCarousel directions={directions} />
       </section>
 
       <section className="mx-auto w-full max-w-5xl">
-        <div className="mb-6 flex items-baseline justify-between">
-          <h2 className="text-2xl font-semibold">Ближайшие занятия</h2>
-          <Link
-            href="/schedule"
-            className="text-sm font-medium text-[var(--primary)] hover:underline"
-          >
-            Всё расписание →
-          </Link>
-        </div>
-        <ScheduleList slots={upcoming} />
+        <h2 className="mb-6 text-center text-2xl font-semibold">Ближайшие занятия</h2>
+        <BookableScheduleList
+          slots={upcoming}
+          isAuthenticated={currentUser !== null}
+          classKey={null}
+        />
       </section>
 
-      <section className="mx-auto w-full max-w-5xl">
-        <div className="mb-6 flex items-baseline justify-between">
-          <h2 className="text-2xl font-semibold">Абонементы</h2>
-          <Link
-            href="/packages"
-            className="text-sm font-medium text-[var(--primary)] hover:underline"
-          >
-            Все варианты →
-          </Link>
-        </div>
-        <PackagesGrid packages={packages.slice(0, 3)} />
-      </section>
-
-      <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-3xl bg-[var(--primary-light)] p-10 text-center shadow-[var(--shadow-card)]">
+      <section className="glass-card-accent mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-3xl p-10 text-center shadow-[var(--shadow-card)]">
         <h2 className="text-2xl font-semibold text-[var(--accent-dark)]">
           Готовы начать?
         </h2>

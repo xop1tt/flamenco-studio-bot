@@ -13,6 +13,7 @@ export type Direction = {
   key: string;
   label: string;
   description: string;
+  level: string;
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -28,11 +29,20 @@ const DESCRIPTIONS: Record<string, string> = {
     "время, в своём темпе.",
 };
 
+// Уровень следует из самого названия направления (beginner/intermediate/
+// individual) — это не маркетинговая выдумка, а прямое отражение каталога.
+const LEVELS: Record<string, string> = {
+  beginner: "Для начинающих, без подготовки",
+  intermediate: "Для продолжающих",
+  individual: "Индивидуально, любой уровень",
+};
+
 export async function getDirections(): Promise<Direction[]> {
   const classes = await getClasses();
   return classes.map((item) => ({
     key: item.key,
     label: item.label,
     description: DESCRIPTIONS[item.key] ?? "",
+    level: LEVELS[item.key] ?? "",
   }));
 }

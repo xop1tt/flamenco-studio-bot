@@ -41,7 +41,7 @@ export default async function SchedulePage({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-bold">Расписание</h1>
+      <h1 className="text-3xl font-semibold">Расписание</h1>
 
       {booked && (
         <p className="rounded-md bg-green-50 p-3 text-sm text-green-800">

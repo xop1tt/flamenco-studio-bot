@@ -18,11 +18,11 @@ export default async function LoginPage() {
 
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-6 px-4 py-16 text-center">
-      <h1 className="text-3xl font-bold">Вход</h1>
+      <h1 className="text-3xl font-semibold">Вход</h1>
       <p className="text-base leading-relaxed text-[var(--text-secondary)]">
         Войдите через Telegram — это тот же аккаунт, что в боте студии.
       </p>
-      <div className="w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-[var(--shadow-card)]">
+      <div className="w-full rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
         <TelegramLoginWidget />
       </div>
     </div>

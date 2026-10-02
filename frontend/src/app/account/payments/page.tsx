@@ -60,7 +60,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
       {payments.map((payment) => (
         <li
           key={payment.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-[var(--shadow-card)]"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)]"
         >
           <div className="flex flex-col gap-1">
             <span className="font-medium">{payment.package_title}</span>
