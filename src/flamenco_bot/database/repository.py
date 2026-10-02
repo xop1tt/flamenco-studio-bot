@@ -133,6 +133,34 @@ class ClassBooking:
 
 
 @dataclass(frozen=True)
+class UserBooking:
+    """Запись участника на занятие вместе со статусом брони и слота.
+
+    В отличие от ``ClassBooking`` (результат одного вызова ``book_class_slot``)
+    используется для списков "мои занятия": несёт и статус брони
+    (confirmed/cancelled), и статус самого слота (open/closed).
+    """
+
+    id: int
+    slot_id: int
+    class_key: str
+    starts_at: datetime
+    booking_status: str
+    slot_status: str
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "UserBooking":
+        return cls(
+            id=record["id"],
+            slot_id=record["slot_id"],
+            class_key=record["class_key"],
+            starts_at=record["starts_at"],
+            booking_status=record["booking_status"],
+            slot_status=record["slot_status"],
+        )
+
+
+@dataclass(frozen=True)
 class SupportTicket:
     id: int
     telegram_id: int
@@ -1350,6 +1378,30 @@ class PostgresRepository:
             class_key=slot["class_key"],
         )
 
+    async def list_bookings_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 50,
+    ) -> Sequence[UserBooking]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество записей должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT booking.id, booking.slot_id, slot.class_key,
+                       slot.starts_at, booking.status AS booking_status,
+                       slot.status AS slot_status
+                FROM lesson_bookings AS booking
+                JOIN lesson_slots AS slot ON slot.id = booking.slot_id
+                WHERE booking.telegram_id = $1
+                ORDER BY slot.starts_at DESC
+                LIMIT $2
+                """,
+                telegram_id,
+                limit,
+            )
+        return [UserBooking.from_record(record) for record in records]
+
     async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
         if not 1 <= capacity <= 100:
             raise ValueError("Вместимость слота должна быть от 1 до 100")
@@ -1518,6 +1570,44 @@ class PostgresRepository:
                 ORDER BY ticket.updated_at DESC
                 LIMIT $1
                 """,
+                limit,
+            )
+        return [
+            SupportTicket(
+                id=record["id"],
+                telegram_id=record["telegram_id"],
+                status=record["status"],
+                created_at=record["created_at"],
+                updated_at=record["updated_at"],
+                last_message=record["last_message"] or "",
+            )
+            for record in records
+        ]
+
+    async def list_support_tickets_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 20,
+    ) -> Sequence[SupportTicket]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество обращений должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT ticket.id, ticket.telegram_id, ticket.status,
+                       ticket.created_at, ticket.updated_at,
+                       message.body AS last_message
+                FROM support_tickets AS ticket
+                LEFT JOIN LATERAL (
+                    SELECT body FROM support_messages
+                    WHERE ticket_id = ticket.id
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                ) AS message ON TRUE
+                WHERE ticket.telegram_id = $1
+                ORDER BY ticket.updated_at DESC
+                LIMIT $2
+                """,
+                telegram_id,
                 limit,
             )
         return [
@@ -2290,6 +2380,28 @@ class InMemoryRepository:
         )
         return booking
 
+    async def list_bookings_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 50,
+    ) -> Sequence[UserBooking]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество записей должно быть от 1 до 100")
+        bookings = [
+            UserBooking(
+                id=booking.id,
+                slot_id=booking.slot_id,
+                class_key=booking.class_key,
+                starts_at=booking.starts_at,
+                booking_status="confirmed",
+                slot_status=self._class_slots[booking.slot_id].status,
+            )
+            for (slot_id, booking_telegram_id), booking in self._class_bookings.items()
+            if booking_telegram_id == telegram_id and not booking.already_booked
+        ]
+        bookings.sort(key=lambda booking: booking.starts_at, reverse=True)
+        return bookings[:limit]
+
     async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
         if not 1 <= capacity <= 100:
             raise ValueError("Вместимость слота должна быть от 1 до 100")
@@ -2430,6 +2542,32 @@ class InMemoryRepository:
             )
             for ticket in self._support_tickets.values()
             if ticket.status == "open"
+        ]
+        tickets.sort(key=lambda ticket: ticket.updated_at, reverse=True)
+        return tickets[:limit]
+
+    async def list_support_tickets_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 20,
+    ) -> Sequence[SupportTicket]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество обращений должно быть от 1 до 100")
+        tickets = [
+            SupportTicket(
+                id=ticket.id,
+                telegram_id=ticket.telegram_id,
+                status=ticket.status,
+                created_at=ticket.created_at,
+                updated_at=ticket.updated_at,
+                last_message=(
+                    self._support_messages[ticket.id][-1].body
+                    if self._support_messages[ticket.id]
+                    else ""
+                ),
+            )
+            for ticket in self._support_tickets.values()
+            if ticket.telegram_id == telegram_id
         ]
         tickets.sort(key=lambda ticket: ticket.updated_at, reverse=True)
         return tickets[:limit]

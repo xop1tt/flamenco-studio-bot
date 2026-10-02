@@ -91,6 +91,39 @@ class SchedulingAndSupportTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "1 до 2000"):
             await repository.create_support_message(1001, "x" * 2001)
 
+    async def test_list_bookings_for_telegram_id_excludes_other_users(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        await repository.get_or_create_profile(1002, "Мария", False)
+        slot = await repository.create_class_slot(
+            "beginner",
+            datetime.now(timezone.utc) + timedelta(days=1),
+            2,
+            77,
+        )
+        await repository.book_class_slot(slot.id, 1001)
+        await repository.book_class_slot(slot.id, 1002)
+
+        bookings = await repository.list_bookings_for_telegram_id(1001)
+        self.assertEqual(len(bookings), 1)
+        self.assertEqual(bookings[0].slot_id, slot.id)
+        self.assertEqual(bookings[0].class_key, "beginner")
+        self.assertEqual(bookings[0].booking_status, "confirmed")
+        self.assertEqual(bookings[0].slot_status, "open")
+
+    async def test_list_support_tickets_for_telegram_id_includes_closed_tickets(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        await repository.get_or_create_profile(1002, "Мария", False)
+        ticket_id, _ = await repository.create_support_message(1001, "Помогите")
+        await repository.close_support_ticket(ticket_id, 77)
+        await repository.create_support_message(1002, "Другой вопрос")
+
+        tickets = await repository.list_support_tickets_for_telegram_id(1001)
+        self.assertEqual(len(tickets), 1)
+        self.assertEqual(tickets[0].id, ticket_id)
+        self.assertEqual(tickets[0].status, "closed")
+
 
 class SupportRateLimiterTests(unittest.TestCase):
     def test_support_messages_are_limited_per_user_and_expire(self):

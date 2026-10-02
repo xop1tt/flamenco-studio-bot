@@ -9,12 +9,18 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from aiogram import Bot
 from fastapi import FastAPI
 
 from ..database import InMemoryRepository, PostgresRepository, is_database_configured
+from ..runtime.security import SupportRateLimiter
 from ..services import AuthService
 from .config import WebConfig
 from .routers.auth import router as auth_router
+from .routers.bookings import router as bookings_router
+from .routers.packages import router as packages_router
+from .routers.schedule import router as schedule_router
+from .routers.support import router as support_router
 
 
 logger = logging.getLogger("bot.api")
@@ -45,18 +51,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         repository = InMemoryRepository()
     await repository.initialize()
 
+    # Тот же бот, что и в main.py: нужен только чтобы рассылать уведомления
+    # администраторам (AdminNotifier), не для приёма обновлений/polling.
+    bot = Bot(token=WebConfig.BOT_TOKEN)
+
     app.state.repository = repository
     app.state.auth_service = AuthService(repository, WebConfig.BOT_TOKEN)
     app.state.session_secret_key = WebConfig.SESSION_SECRET_KEY
+    app.state.bot = bot
+    app.state.support_limiter = SupportRateLimiter()
     try:
         yield
     finally:
+        await bot.session.close()
         await repository.close()
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Flamenco Studio API", lifespan=lifespan)
     app.include_router(auth_router)
+    app.include_router(schedule_router)
+    app.include_router(packages_router)
+    app.include_router(bookings_router)
+    app.include_router(support_router)
 
     @app.get("/api/health")
     async def health() -> dict:
