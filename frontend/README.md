@@ -6,9 +6,10 @@ backend API, что описан в корневом `README.md` — сайт н
 `src/flamenco_bot/api` (см. корневой `WEBSITE_PLAN.md`).
 
 Реализовано: публичные страницы без авторизации (Stage 3 — главная,
-расписание, направления, абонементы, контакты) и вход через Telegram
-(Stage 4 — `/login`, сессия в httponly-cookie). Личный кабинет и запись на
-занятия — следующие этапы.
+расписание, направления, абонементы, контакты), вход через Telegram
+(Stage 4 — `/login`, сессия в httponly-cookie) и личный кабинет (Stage 5 —
+`/account`: профиль, баланс, мои занятия, поддержка). Запись на занятия через
+сайт (Stage 6) — следующий этап.
 
 ## Запуск
 
@@ -41,11 +42,11 @@ python -m flamenco_bot.api
 
 ## Данные и кэширование
 
-Страницы `/`, `/schedule`, `/packages` и `/login` показывают живые данные
-(свободные места, цены абонементов, статус сессии) и помечены
-`export const dynamic = "force-dynamic"`, чтобы Next.js не заморозил их в
-статический HTML на этапе `next build`. Хедер сайта (`SiteHeader`) на каждой
-странице читает cookie сессии — из-за этого **весь сайт** рендерится
+Страницы `/`, `/schedule`, `/packages`, `/login` и весь `/account/*` показывают
+живые данные (свободные места, цены абонементов, статус сессии, профиль) и
+помечены `export const dynamic = "force-dynamic"`, чтобы Next.js не заморозил
+их в статический HTML на этапе `next build`. Хедер сайта (`SiteHeader`) на
+каждой странице читает cookie сессии — из-за этого **весь сайт** рендерится
 динамически, даже `/directions` и `/contact`: это осознанный компромисс
 (корректность состояния авторизации важнее статической оптимизации двух
 страниц с текстом).
@@ -55,15 +56,23 @@ python -m flamenco_bot.api
 ```text
 src/
 ├── app/
-│   └── login/      # Telegram Login Widget, редирект на / если уже вошёл
+│   ├── login/      # Telegram Login Widget, редирект на / если уже вошёл
+│   └── account/     # личный кабинет (Stage 5), требует сессию
+│       ├── layout.tsx    # guard: редирект на /login без сессии
+│       ├── page.tsx       # профиль + баланс (GET /api/users/me/profile)
+│       ├── bookings/      # мои занятия, предстоящие/прошедшие
+│       └── support/       # обращения: форма + список (GET/POST /api/support)
 ├── components/
-│   └── TelegramLoginWidget.tsx  # клиентский компонент — грузит виджет,
-│                                 # шлёт POST /api/auth/telegram
+│   ├── TelegramLoginWidget.tsx  # клиентский компонент — грузит виджет,
+│   │                             # шлёт POST /api/auth/telegram
+│   └── AccountNav.tsx            # суб-навигация внутри /account
 └── lib/
     ├── api.ts        # клиент к backend API (GET /api/schedule, /api/packages)
     ├── auth.ts       # getCurrentUser() — читает cookie сессии, спрашивает
     │                 # backend GET /api/auth/me (серверные компоненты)
-    ├── actions.ts    # Server Action logoutAction (форма "Выйти" в хедере)
+    ├── account.ts    # getProfile/getMyBookings/getMySupportTickets — то же,
+    │                 # что auth.ts, но для /api/users, /api/bookings, /api/support
+    ├── actions.ts    # Server Actions: logoutAction, submitSupportMessageAction
     ├── directions.ts # маркетинговые описания направлений (labels совпадают
     │                 # с CLASS_LABELS в src/flamenco_bot/class_catalog.py)
     └── format.ts      # форматирование дат/времени
@@ -82,8 +91,12 @@ backend через `rewrites()` в `next.config.ts` — отдельного COR
 - Вход только через Telegram; `/api/auth/register` и `/api/auth/login`
   (email/пароль) на backend есть, но на сайте для них пока нет формы —
   добавить, если продукту нужен вход без Telegram.
-- Личный кабинет (профиль, баланс, мои занятия, история) и запись на
-  занятия — Stage 5/6 по `WEBSITE_PLAN.md`, не входят в этот этап.
+- История платежей в кабинете не показана — на backend пока нет
+  `/api/payments` (платежи — Stage 7, сознательно отложены, деньги требуют
+  отдельного решения).
+- Запись на занятия через сайт (кнопка «Записаться» в расписании) — Stage 6,
+  не входит в этот этап. Отмена записи и привязка/отвязка Telegram из
+  кабинета — тоже нет UI, хотя у `/api/auth/me/telegram` есть backend.
 
 ## Прочее
 

@@ -26,3 +26,40 @@ export async function logoutAction(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE_NAME);
   redirect("/");
 }
+
+export async function submitSupportMessageAction(
+  formData: FormData,
+): Promise<void> {
+  const cookieStore = await cookies();
+  const session = cookieStore.get(SESSION_COOKIE_NAME);
+  if (!session) {
+    redirect("/login");
+  }
+
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) {
+    redirect("/account/support?error=empty");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/support`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `${SESSION_COOKIE_NAME}=${session.value}`,
+      },
+      body: JSON.stringify({ body }),
+    });
+  } catch (error) {
+    console.error("Support submission request failed", error);
+    redirect("/account/support?error=network");
+  }
+
+  if (!response.ok) {
+    const reason = response.status === 429 ? "rate_limited" : "failed";
+    redirect(`/account/support?error=${reason}`);
+  }
+
+  redirect("/account/support?submitted=1");
+}

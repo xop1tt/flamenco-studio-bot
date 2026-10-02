@@ -31,9 +31,12 @@ export async function SiteHeader() {
           ))}
           {currentUser ? (
             <form action={logoutAction} className="flex items-center gap-3">
-              <span className="text-[var(--foreground)]/70">
+              <Link
+                href="/account"
+                className="text-[var(--foreground)]/80 transition hover:text-[var(--accent)]"
+              >
                 {currentUser.display_name}
-              </span>
+              </Link>
               <button
                 type="submit"
                 className="text-[var(--foreground)]/80 underline-offset-2 transition hover:text-[var(--accent)] hover:underline"
