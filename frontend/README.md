@@ -7,9 +7,10 @@ backend API, что описан в корневом `README.md` — сайт н
 
 Реализовано: публичные страницы без авторизации (Stage 3 — главная,
 расписание, направления, абонементы, контакты), вход через Telegram
-(Stage 4 — `/login`, сессия в httponly-cookie) и личный кабинет (Stage 5 —
-`/account`: профиль, баланс, мои занятия, поддержка). Запись на занятия через
-сайт (Stage 6) — следующий этап.
+(Stage 4 — `/login`, сессия в httponly-cookie), личный кабинет (Stage 5 —
+`/account`: профиль, баланс, мои занятия, поддержка) и запись на занятия
+прямо из расписания (Stage 6 — кнопка «Записаться»/«Войти и записаться» на
+`/schedule`).
 
 ## Запуск
 
@@ -67,16 +68,20 @@ src/
 │       ├── bookings/      # мои занятия, предстоящие/прошедшие
 │       └── support/       # обращения: форма + список (GET/POST /api/support)
 ├── components/
-│   ├── TelegramLoginWidget.tsx  # клиентский компонент — грузит виджет,
+│   ├── TelegramLoginWidget.tsx   # клиентский компонент — грузит виджет,
 │   │                             # шлёт POST /api/auth/telegram
-│   └── AccountNav.tsx            # суб-навигация внутри /account
+│   ├── AccountNav.tsx            # суб-навигация внутри /account
+│   └── BookableScheduleList.tsx  # расписание с кнопкой «Записаться» —
+│                                  # используется на /schedule (не на главной)
 └── lib/
     ├── api.ts        # клиент к backend API (GET /api/schedule, /api/packages)
     ├── auth.ts       # getCurrentUser() — читает cookie сессии, спрашивает
     │                 # backend GET /api/auth/me (серверные компоненты)
     ├── account.ts    # getProfile/getMyBookings/getMySupportTickets — то же,
     │                 # что auth.ts, но для /api/users, /api/bookings, /api/support
-    ├── actions.ts    # Server Actions: logoutAction, submitSupportMessageAction
+    ├── actions.ts    # Server Actions: logoutAction, submitSupportMessageAction,
+    │                 # bookClassAction (POST /api/bookings, переиспользует
+    │                 # сообщения об ошибках backend'а вместо своего перевода)
     ├── directions.ts # маркетинговые описания направлений (labels совпадают
     │                 # с CLASS_LABELS в src/flamenco_bot/class_catalog.py)
     └── format.ts      # форматирование дат/времени
@@ -98,9 +103,10 @@ backend через `rewrites()` в `next.config.ts` — отдельного COR
 - История платежей в кабинете не показана — на backend пока нет
   `/api/payments` (платежи — Stage 7, сознательно отложены, деньги требуют
   отдельного решения).
-- Запись на занятия через сайт (кнопка «Записаться» в расписании) — Stage 6,
-  не входит в этот этап. Отмена записи и привязка/отвязка Telegram из
-  кабинета — тоже нет UI, хотя у `/api/auth/me/telegram` есть backend.
+- Отмена записи — нет ни UI, ни backend-эндпоинта (в боте такого тоже нет,
+  правило не определено — см. `WEBSITE_PLAN.md`, раздел 14: "не придумывать
+  новые правила самостоятельно"). Привязка/отвязка Telegram из кабинета —
+  тоже нет UI, хотя у `/api/auth/me/telegram` есть backend.
 
 ## Прочее
 

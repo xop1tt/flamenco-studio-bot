@@ -1,7 +1,7 @@
 import type { ClassSlot } from "@/lib/api";
 import { formatClassDateTime } from "@/lib/format";
 
-function availabilityLabel(slot: ClassSlot): string {
+export function availabilityLabel(slot: ClassSlot): string {
   if (slot.status !== "open") {
     return "Занятие закрыто";
   }
