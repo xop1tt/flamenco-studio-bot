@@ -86,7 +86,7 @@ export function TelegramLoginWidget() {
 
   if (!BOT_USERNAME) {
     return (
-      <p className="text-sm text-[var(--foreground)]/70">
+      <p className="text-sm text-[var(--text-secondary)]">
         Вход через Telegram не настроен: не задан
         NEXT_PUBLIC_TELEGRAM_BOT_USERNAME.
       </p>
@@ -97,7 +97,7 @@ export function TelegramLoginWidget() {
     <div className="flex flex-col items-center gap-3">
       <div id={`telegram-login-${reactId}`} />
       {pending && (
-        <p className="text-sm text-[var(--foreground)]/70">Входим…</p>
+        <p className="text-sm text-[var(--text-secondary)]">Входим…</p>
       )}
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>

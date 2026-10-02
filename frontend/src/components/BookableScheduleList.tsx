@@ -13,7 +13,7 @@ type Props = {
 export function BookableScheduleList({ slots, isAuthenticated, classKey }: Props) {
   if (slots.length === 0) {
     return (
-      <p className="text-[var(--foreground)]/70">
+      <p className="text-[var(--text-secondary)]">
         Сейчас нет запланированных занятий. Загляните позже или напишите нам
         — см. страницу «Контакты».
       </p>
@@ -47,19 +47,19 @@ function BookableScheduleCard({
   const soldOut = !bookable;
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-black/10 p-4 shadow-sm">
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{slot.class_label}</span>
-          <span className="text-sm text-[var(--foreground)]/70">
+          <span className="text-sm text-[var(--text-secondary)]">
             {formatClassDateTime(slot.starts_at)}
           </span>
         </div>
         <div
           className={
             soldOut
-              ? "text-sm text-[var(--foreground)]/60"
-              : "text-sm font-medium text-[var(--accent)]"
+              ? "text-sm text-[var(--text-secondary)]"
+              : "text-sm font-medium text-[var(--primary)]"
           }
         >
           {availabilityLabel(slot)}
@@ -73,7 +73,7 @@ function BookableScheduleCard({
             {classKey && <input type="hidden" name="class_key" value={classKey} />}
             <button
               type="submit"
-              className="shrink-0 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              className="shrink-0 rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
             >
               Записаться
             </button>
@@ -81,7 +81,7 @@ function BookableScheduleCard({
         ) : (
           <Link
             href="/login"
-            className="shrink-0 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+            className="shrink-0 rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
           >
             Войти и записаться
           </Link>

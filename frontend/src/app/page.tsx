@@ -23,20 +23,20 @@ export default async function HomePage() {
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           Flamenco Studio
         </h1>
-        <p className="max-w-xl text-lg text-[var(--foreground)]/80">
+        <p className="max-w-xl text-lg text-[var(--text-secondary)]">
           Танец фламенко для начинающих и продолжающих: живой ритм, работа с
           телом и характером — в группе или индивидуально.
         </p>
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <Link
             href="/schedule"
-            className="rounded-md bg-[var(--accent)] px-5 py-2.5 font-medium text-white transition hover:opacity-90"
+            className="rounded-md bg-[var(--primary)] px-5 py-2.5 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
           >
             Смотреть расписание
           </Link>
           <Link
             href="/packages"
-            className="rounded-md border border-black/15 px-5 py-2.5 font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            className="rounded-md border border-[var(--border-strong)] px-5 py-2.5 font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             Абонементы
           </Link>
@@ -49,10 +49,10 @@ export default async function HomePage() {
           {directions.map((direction) => (
             <div
               key={direction.key}
-              className="rounded-lg border border-black/10 p-5"
+              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-5 shadow-sm"
             >
               <h3 className="mb-2 font-medium">{direction.label}</h3>
-              <p className="text-sm text-[var(--foreground)]/70">
+              <p className="text-sm text-[var(--text-secondary)]">
                 {direction.description}
               </p>
             </div>
@@ -63,13 +63,13 @@ export default async function HomePage() {
       <section className="mx-auto w-full max-w-5xl">
         <h2 className="mb-2 text-2xl font-semibold">Почему Flamenco Studio</h2>
         <div className="grid gap-4 sm:grid-cols-3">
-          <p className="text-sm text-[var(--foreground)]/80">
+          <p className="text-sm text-[var(--text-secondary)]">
             Небольшие группы и внимание к технике каждого ученика.
           </p>
-          <p className="text-sm text-[var(--foreground)]/80">
+          <p className="text-sm text-[var(--text-secondary)]">
             Занятия для любого уровня — от первого шага до постановки номера.
           </p>
-          <p className="text-sm text-[var(--foreground)]/80">
+          <p className="text-sm text-[var(--text-secondary)]">
             Гибкое расписание и возможность индивидуальных занятий.
           </p>
         </div>
@@ -80,7 +80,7 @@ export default async function HomePage() {
           <h2 className="text-2xl font-semibold">Ближайшие занятия</h2>
           <Link
             href="/schedule"
-            className="text-sm font-medium text-[var(--accent)] hover:underline"
+            className="text-sm font-medium text-[var(--primary)] hover:underline"
           >
             Всё расписание →
           </Link>
@@ -93,7 +93,7 @@ export default async function HomePage() {
           <h2 className="text-2xl font-semibold">Абонементы</h2>
           <Link
             href="/packages"
-            className="text-sm font-medium text-[var(--accent)] hover:underline"
+            className="text-sm font-medium text-[var(--primary)] hover:underline"
           >
             Все варианты →
           </Link>
@@ -101,15 +101,15 @@ export default async function HomePage() {
         <PackagesGrid packages={packages.slice(0, 3)} />
       </section>
 
-      <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-lg border border-black/10 p-8 text-center">
+      <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-8 text-center shadow-sm">
         <h2 className="text-2xl font-semibold">Готовы начать?</h2>
-        <p className="text-[var(--foreground)]/70">
+        <p className="text-[var(--text-secondary)]">
           Выберите удобное занятие в расписании или напишите нам — поможем
           выбрать направление.
         </p>
         <Link
           href="/contact"
-          className="mt-2 rounded-md bg-[var(--accent)] px-5 py-2.5 font-medium text-white transition hover:opacity-90"
+          className="mt-2 rounded-md bg-[var(--primary)] px-5 py-2.5 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
         >
           Связаться со студией
         </Link>

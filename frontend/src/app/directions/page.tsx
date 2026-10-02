@@ -20,15 +20,15 @@ export default async function DirectionsPage() {
         {directions.map((direction) => (
           <div
             key={direction.key}
-            className="rounded-lg border border-black/10 p-6"
+            className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm"
           >
             <h2 className="mb-2 text-xl font-semibold">{direction.label}</h2>
-            <p className="mb-4 text-[var(--foreground)]/80">
+            <p className="mb-4 text-[var(--text-secondary)]">
               {direction.description}
             </p>
             <Link
               href={`/schedule?class_key=${direction.key}`}
-              className="text-sm font-medium text-[var(--accent)] hover:underline"
+              className="text-sm font-medium text-[var(--primary)] hover:underline"
             >
               Расписание этого направления →
             </Link>

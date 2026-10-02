@@ -19,7 +19,7 @@ export default async function LoginPage() {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-6 px-4 py-16 text-center">
       <h1 className="text-3xl font-bold">Вход</h1>
-      <p className="text-[var(--foreground)]/80">
+      <p className="text-[var(--text-secondary)]">
         Войдите через Telegram — это тот же аккаунт, что в боте студии.
       </p>
       <TelegramLoginWidget />

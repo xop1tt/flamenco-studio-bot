@@ -59,3 +59,7 @@ htmlcov/
 # Temp files
 *.tmp
 __pycache__/
+
+# Local convenience run scripts (dev only, not for production)
+/run-bot.sh
+/run-website.sh

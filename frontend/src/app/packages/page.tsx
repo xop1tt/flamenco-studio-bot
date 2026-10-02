@@ -27,7 +27,7 @@ export default async function PackagesPage({
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-12">
       <h1 className="text-3xl font-bold">Абонементы</h1>
-      <p className="max-w-2xl text-[var(--foreground)]/80">
+      <p className="max-w-2xl text-[var(--text-secondary)]">
         Разовое занятие или абонемент на несколько занятий — цены и состав
         всегда актуальны, их определяет студия.
       </p>

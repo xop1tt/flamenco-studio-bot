@@ -40,7 +40,7 @@ export default async function AccountBookingsPage({
       <section>
         <h2 className="mb-4 text-xl font-semibold">Предстоящие</h2>
         {upcoming.length === 0 ? (
-          <p className="text-[var(--foreground)]/70">
+          <p className="text-[var(--text-secondary)]">
             Пока нет предстоящих занятий. Запишитесь в расписании.
           </p>
         ) : (
@@ -51,7 +51,7 @@ export default async function AccountBookingsPage({
       <section>
         <h2 className="mb-4 text-xl font-semibold">Прошедшие</h2>
         {past.length === 0 ? (
-          <p className="text-[var(--foreground)]/70">Пока нет истории занятий.</p>
+          <p className="text-[var(--text-secondary)]">Пока нет истории занятий.</p>
         ) : (
           <BookingList bookings={past} allowCancel={false} />
         )}
@@ -86,16 +86,16 @@ function BookingList({
       {bookings.map((booking) => (
         <li
           key={booking.id}
-          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-black/10 p-4"
+          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm"
         >
           <span className="font-medium">{booking.class_label}</span>
-          <span className="text-sm text-[var(--foreground)]/70">
+          <span className="text-sm text-[var(--text-secondary)]">
             {formatClassDateTime(booking.starts_at)}
           </span>
           {booking.booking_status === "cancelled" ? (
-            <span className="text-sm text-[var(--foreground)]/60">Отменено</span>
+            <span className="text-sm text-[var(--text-secondary)]">Отменено</span>
           ) : booking.slot_status !== "open" ? (
-            <span className="text-sm text-[var(--foreground)]/60">
+            <span className="text-sm text-[var(--text-secondary)]">
               Занятие отменено студией
             </span>
           ) : (

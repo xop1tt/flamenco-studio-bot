@@ -13,7 +13,7 @@ type Props = {
 export function PackagesGrid({ packages, isAuthenticated }: Props) {
   if (packages.length === 0) {
     return (
-      <p className="text-[var(--foreground)]/70">
+      <p className="text-[var(--text-secondary)]">
         Каталог абонементов сейчас недоступен. Попробуйте обновить страницу
         позже.
       </p>
@@ -25,13 +25,13 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
       {packages.map((lessonPackage) => (
         <div
           key={lessonPackage.key}
-          className="flex flex-col gap-3 rounded-lg border border-black/10 p-6 shadow-sm"
+          className="flex flex-col gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm"
         >
           <div className="text-lg font-semibold">{lessonPackage.title}</div>
-          <div className="text-sm text-[var(--foreground)]/70">
+          <div className="text-sm text-[var(--text-secondary)]">
             {lessonPackage.lessons} {lessonsWord(lessonPackage.lessons)}
           </div>
-          <div className="text-2xl font-bold text-[var(--accent)]">
+          <div className="text-2xl font-bold text-[var(--primary)]">
             {lessonPackage.price_rub} ₽
           </div>
           {isAuthenticated !== undefined && (
@@ -41,7 +41,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
                   <input type="hidden" name="package_key" value={lessonPackage.key} />
                   <button
                     type="submit"
-                    className="w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                    className="w-full rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
                   >
                     Купить
                   </button>
@@ -49,7 +49,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
               ) : (
                 <Link
                   href="/login"
-                  className="block w-full rounded-md bg-[var(--accent)] px-4 py-2 text-center text-sm font-medium text-white transition hover:opacity-90"
+                  className="block w-full rounded-md bg-[var(--primary)] px-4 py-2 text-center text-sm font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
                 >
                   Войти и купить
                 </Link>

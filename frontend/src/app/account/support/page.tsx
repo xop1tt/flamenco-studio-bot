@@ -27,7 +27,7 @@ export default async function AccountSupportPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <section className="rounded-lg border border-black/10 p-6">
+      <section className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-sm">
         <h2 className="mb-4 text-xl font-semibold">Новое обращение</h2>
         {submitted && (
           <p className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-800">
@@ -46,11 +46,11 @@ export default async function AccountSupportPage({
             maxLength={2000}
             rows={4}
             placeholder="Опишите вопрос..."
-            className="rounded-md border border-black/15 p-3 text-sm focus:border-[var(--accent)] focus:outline-none"
+            className="rounded-md border border-[var(--border-strong)] p-3 text-sm focus:border-[var(--primary)] focus:outline-none"
           />
           <button
             type="submit"
-            className="self-start rounded-md bg-[var(--accent)] px-5 py-2 font-medium text-white transition hover:opacity-90"
+            className="self-start rounded-md bg-[var(--primary)] px-5 py-2 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
           >
             Отправить
           </button>
@@ -60,23 +60,23 @@ export default async function AccountSupportPage({
       <section>
         <h2 className="mb-4 text-xl font-semibold">Мои обращения</h2>
         {tickets.length === 0 ? (
-          <p className="text-[var(--foreground)]/70">Обращений пока нет.</p>
+          <p className="text-[var(--text-secondary)]">Обращений пока нет.</p>
         ) : (
           <ul className="flex flex-col gap-3">
             {tickets.map((ticket) => (
               <li
                 key={ticket.id}
-                className="flex flex-col gap-1 rounded-lg border border-black/10 p-4"
+                className="flex flex-col gap-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">Обращение №{ticket.id}</span>
-                  <span className="text-sm text-[var(--foreground)]/60">
+                  <span className="text-sm text-[var(--text-secondary)]">
                     {ticket.status === "open" ? "Открыто" : "Закрыто"} ·{" "}
                     {formatClassDateTime(ticket.updated_at)}
                   </span>
                 </div>
                 {ticket.last_message && (
-                  <p className="text-sm text-[var(--foreground)]/80">
+                  <p className="text-sm text-[var(--text-secondary)]">
                     {ticket.last_message}
                   </p>
                 )}

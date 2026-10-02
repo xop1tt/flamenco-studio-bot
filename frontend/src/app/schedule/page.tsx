@@ -92,8 +92,8 @@ function FilterLink({
       href={href}
       className={
         active
-          ? "rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white"
-          : "rounded-full border border-black/15 px-4 py-1.5 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          ? "rounded-full bg-[var(--primary)] px-4 py-1.5 text-sm font-medium text-[var(--surface)]"
+          : "rounded-full border border-[var(--border-strong)] px-4 py-1.5 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
       }
     >
       {label}

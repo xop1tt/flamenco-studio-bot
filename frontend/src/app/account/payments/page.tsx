@@ -39,9 +39,9 @@ export default async function AccountPaymentsPage({
       <section>
         <h2 className="mb-4 text-xl font-semibold">История платежей</h2>
         {payments.length === 0 ? (
-          <p className="text-[var(--foreground)]/70">
+          <p className="text-[var(--text-secondary)]">
             Платежей пока нет. Выбрать абонемент можно на{" "}
-            <Link href="/packages" className="text-[var(--accent)] hover:underline">
+            <Link href="/packages" className="text-[var(--primary)] hover:underline">
               странице абонементов
             </Link>
             .
@@ -60,17 +60,17 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
       {payments.map((payment) => (
         <li
           key={payment.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-black/10 p-4"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface)] p-4 shadow-sm"
         >
           <div className="flex flex-col gap-1">
             <span className="font-medium">{payment.package_title}</span>
-            <span className="text-sm text-[var(--foreground)]/60">
+            <span className="text-sm text-[var(--text-secondary)]">
               {formatClassDateTime(payment.created_at)} ·{" "}
               {Math.round(payment.amount_minor / 100)} ₽
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-[var(--foreground)]/80">
+            <span className="text-sm font-medium text-[var(--text-secondary)]">
               {STATUS_LABELS[payment.status] ?? payment.status}
             </span>
             {payment.status === "pending" && (
@@ -78,7 +78,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
                 <input type="hidden" name="payment_id" value={payment.id} />
                 <button
                   type="submit"
-                  className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  className="rounded-md border border-[var(--border-strong)] px-3 py-1.5 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                   Проверить оплату
                 </button>

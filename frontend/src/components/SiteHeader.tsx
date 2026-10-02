@@ -14,7 +14,7 @@ export async function SiteHeader() {
   const currentUser = await getCurrentUser();
 
   return (
-    <header className="border-b border-black/10 bg-[var(--background)]">
+    <header className="border-b border-[var(--border)] bg-[var(--surface)]">
       <div className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/" className="text-lg font-semibold tracking-wide">
           Flamenco Studio
@@ -24,7 +24,7 @@ export async function SiteHeader() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-[var(--foreground)]/80 transition hover:text-[var(--accent)]"
+              className="text-[var(--text-secondary)] transition hover:text-[var(--primary)]"
             >
               {link.label}
             </Link>
@@ -33,13 +33,13 @@ export async function SiteHeader() {
             <form action={logoutAction} className="flex items-center gap-3">
               <Link
                 href="/account"
-                className="text-[var(--foreground)]/80 transition hover:text-[var(--accent)]"
+                className="text-[var(--text-secondary)] transition hover:text-[var(--primary)]"
               >
                 {currentUser.display_name}
               </Link>
               <button
                 type="submit"
-                className="text-[var(--foreground)]/80 underline-offset-2 transition hover:text-[var(--accent)] hover:underline"
+                className="text-[var(--text-secondary)] underline-offset-2 transition hover:text-[var(--primary)] hover:underline"
               >
                 Выйти
               </button>
@@ -47,7 +47,7 @@ export async function SiteHeader() {
           ) : (
             <Link
               href="/login"
-              className="rounded-md bg-[var(--accent)] px-3 py-1.5 font-medium text-white transition hover:opacity-90"
+              className="rounded-md bg-[var(--primary)] px-3 py-1.5 font-medium text-[var(--surface)] transition hover:bg-[var(--primary-hover)]"
             >
               Войти
             </Link>
