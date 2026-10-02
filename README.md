@@ -70,7 +70,10 @@ Telegram-бот для студии фламенко: профиль участ�
 ├── .dockerignore            # Исключения из контекста сборки
 ├── docker-compose.backup.yml # Зашифрованные резервные копии PostgreSQL
 ├── logs/                    # Локальные журналы; содержимое не публикуется
+├── frontend/                # Публичный сайт (Next.js) — см. frontend/README.md
 ├── src/flamenco_bot/
+│   ├── api/                 # Веб-API (FastAPI) — второй интерфейс к тем же
+│   │                        # сервисам и БД, что и бот (см. CLAUDE.md)
 │   ├── commands/            # Команды Telegram
 │   ├── class_catalog.py     # Названия форматов и расписание
 │   ├── config/              # Конфигурация из окружения
@@ -82,6 +85,7 @@ Telegram-бот для студии фламенко: профиль участ�
 │   │   └── user/            # Клавиатуры участника
 │   ├── payments/            # Клиент ЮKassa и каталог пакетов
 │   ├── runtime/             # Логирование, безопасность, lifecycle, мониторинг
+│   ├── services/            # Общая бизнес-логика бота и веб-API
 │   ├── main.py              # Инициализация и запуск polling
 │   └── __main__.py          # Запуск через python -m flamenco_bot
 ├── tests/
