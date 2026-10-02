@@ -1,16 +1,70 @@
+x-backend: &backend
+  build:
+    context: .
+  image: flamenco-studio-bot:local
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "3"
+
 services:
   bot:
-    build:
-      context: .
-    image: flamenco-studio-bot:local
-    init: true
-    restart: unless-stopped
+    <<: *backend
     env_file:
       - .env
     environment:
       ENV: production
       DATABASE_SSL_MODE: verify-full
       BOT_LOG_DIR: /var/log/flamenco
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    stop_grace_period: 30s
+    volumes:
+      - bot_logs:/var/log/flamenco
+
+  # Веб-API (src/flamenco_bot/api): тот же образ и код, что и бот, другая
+  # команда запуска. Не публикует порт на хост — доступен только контейнеру
+  # frontend по внутреннему имени сервиса (см. API_BASE_URL там); сайт
+  # проксирует к нему /api/* (frontend/next.config.ts), так что у системы
+  # остаётся одна публичная точка входа.
+  api:
+    <<: *backend
+    command: ["python", "-m", "flamenco_bot.api"]
+    env_file:
+      - .env
+    environment:
+      ENV: production
+      DATABASE_SSL_MODE: verify-full
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    expose:
+      - "8000"
+
+  # Публичный сайт (frontend/, Next.js). Единственный сервис с портом,
+  # опубликованным на хост — перед ним должен стоять TLS-терминирующий
+  # reverse proxy (см. docs/deployment.md), сам он слушает только HTTP.
+  frontend:
+    build:
+      context: ./frontend
+    image: flamenco-studio-frontend:local
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      API_BASE_URL: http://api:8000
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
@@ -18,9 +72,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 30s
-    volumes:
-      - bot_logs:/var/log/flamenco
+    ports:
+      - "3000:3000"
     logging:
       driver: local
       options:
