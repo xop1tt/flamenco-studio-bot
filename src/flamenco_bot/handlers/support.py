@@ -11,6 +11,12 @@ from ..keyboards.common import MAIN_MENU
 from ..keyboards.user import CONTACT_SUPPORT, cancel_keyboard, main_menu_keyboard
 from ..runtime.admin_access import get_admin_id
 from ..runtime.security import SupportRateLimiter
+from ..services import (
+    AdminNotifier,
+    SupportMessageInvalidError,
+    SupportRateLimitedError,
+    SupportService,
+)
 from .states import SupportForm
 
 
@@ -55,81 +61,45 @@ async def submit_support_message(
     bot = message.bot
     if bot is None:
         raise RuntimeError("Telegram bot is unavailable while saving support")
-    body = (message.text or "").strip()
-    if not body or len(body) > 2000:
-        await message.answer("Сообщение должно содержать от 1 до 2000 символов.")
+
+    support_service = SupportService(
+        repository, support_limiter, AdminNotifier(bot, repository)
+    )
+    try:
+        submission = await support_service.submit_message(
+            telegram_id=sender.id,
+            user_name=sender.full_name.strip() or "Участник студии",
+            body=message.text or "",
+        )
+    except SupportMessageInvalidError as error:
+        await message.answer(str(error))
         return
-    if not support_limiter.allow(sender.id):
-        logger.warning("Support rate limit exceeded telegram_id=%s", sender.id)
+    except SupportRateLimitedError:
         await message.answer(
             "Слишком много сообщений. Попробуйте отправить обращение через "
             "несколько минут."
         )
         return
 
-    await repository.get_or_create_profile(
-        telegram_id=sender.id,
-        user_name=sender.full_name.strip() or "Участник студии",
-        is_admin=False,
-    )
-    ticket_id, created = await repository.create_support_message(sender.id, body)
-    delivered = 0
-    recipients = await repository.list_admin_ids()
-    for admin_id in recipients:
-        try:
-            await bot.send_message(
-                admin_id,
-                "Обращение №{} от {} ({}):\n{}".format(
-                    ticket_id,
-                    sender.full_name,
-                    sender.id,
-                    body,
-                ),
-            )
-            delivered += 1
-        except TelegramAPIError as error:
-            logger.warning(
-                "Support notification failed ticket_id=%s admin_id=%s error_type=%s",
-                ticket_id,
-                admin_id,
-                type(error).__name__,
-            )
-
-    notifications_available = bool(recipients) and delivered == len(recipients)
-    if not notifications_available:
-        logger.error(
-            "Support ticket saved without notifying all admins ticket_id=%s "
-            "recipients=%s delivered=%s",
-            ticket_id,
-            len(recipients),
-            delivered,
-        )
     await state.clear()
     is_admin = await get_admin_id(message, repository) is not None
-    if not recipients:
+    report = submission.notifications
+    if report.recipients == 0:
         confirmation = (
             "Обращение №{} сохранено, но администраторы пока не настроены."
-        ).format(ticket_id)
-    elif not notifications_available:
+        ).format(submission.ticket_id)
+    elif not report.complete:
         confirmation = (
             "Обращение №{} сохранено, но уведомить администратора не удалось. "
             "Администраторы проверят его в панели поддержки."
-        ).format(ticket_id)
+        ).format(submission.ticket_id)
     else:
         confirmation = (
             "Обращение №{} сохранено. Администратор ответит вам здесь."
-        ).format(ticket_id)
+        ).format(submission.ticket_id)
     await message.answer(
         confirmation,
         reply_markup=main_menu_keyboard(is_admin=is_admin),
-    )
-    logger.info(
-        "Support message saved ticket_id=%s telegram_id=%s new_ticket=%s "
-        "admin_notifications=%s",
-        ticket_id,
-        sender.id,
-        created,
-        delivered,
     )
 
 

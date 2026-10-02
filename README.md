@@ -90,8 +90,8 @@ Telegram-бот для студии фламенко: профиль участ�
 │   └── support.py           # Общие тестовые заглушки
 ├── env.example              # Безопасный пример конфигурации
 ├── pyproject.toml           # Метаданные и настройки сборки
-├── requirements*.in         # Входные файлы зависимостей
-└── requirements*.txt        # Зафиксированные зависимости с хешами
+├── requirements.in          # Входной файл зависимостей
+└── requirements.txt         # Зафиксированные зависимости с хешами
 ```
 
 В корень намеренно оставлены файлы, которые ожидают стандартные инструменты
@@ -140,17 +140,10 @@ python -m pip install --upgrade pip
 
 ### 3. Установите приложение
 
-Для запуска:
+Один lock-файл с хешами покрывает запуск, разработку и тесты:
 
 ```bash
 python -m pip install -r requirements.txt
-python -m pip install --no-deps -e .
-```
-
-Для разработки и запуска тестов используйте lock-файл dev-зависимостей:
-
-```bash
-python -m pip install -r requirements-dev.txt
 python -m pip install --no-deps -e .
 ```
 
@@ -253,6 +246,7 @@ Compose: это позволяет выбрать управляемую БД и
 | `BOT_LOG_DIR` | Нет | Каталог файловых логов; по умолчанию `logs/` проекта |
 | `ENV` | Нет | `development` (по умолчанию) или `production` |
 | `ADMINS` | Нет | Список Telegram ID через запятую для системных уведомлений; **не выдаёт административные права** |
+| `SESSION_SECRET_KEY` | Для веб-API | Секрет подписи сессионных cookie сайта (`flamenco_bot.api`); сгенерировать: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `DATABASE_URL` | Для production | Строка подключения PostgreSQL |
 | `DATABASE_SSL_MODE` | Нет | `verify-full` по умолчанию; `disable` допустим только для локальной разработки |
 | `DATABASE_SSL_CA` | Нет | Путь к PEM-сертификату частного центра сертификации |

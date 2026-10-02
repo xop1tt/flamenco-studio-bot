@@ -34,7 +34,8 @@ from ..keyboards.admin import (
 from ..keyboards.common import CANCEL, MAIN_MENU
 from ..keyboards.user import main_menu_keyboard
 from ..runtime.runtime_resources import get_process_resources
-from ..payments import PaymentProviderError, YooKassaClient
+from ..payments import YooKassaClient
+from ..services import PaymentService, RefundStatus
 from ..class_catalog import CLASS_LABELS
 from ..database.repository import CLASS_KEYS
 from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
@@ -834,109 +835,57 @@ async def _process_lesson_refund(
     admin_id: int,
     reason: Optional[str] = None,
 ) -> None:
-    try:
-        refund = await repository.prepare_lesson_refund(
-            payment_id,
-            admin_id,
-            reason or "Административный возврат",
-        )
-    except ValueError as error:
-        await message.answer(str(error))
-        return
-    if refund is None:
+    payment_service = PaymentService(repository, payment_gateway)
+    result = await payment_service.process_refund(payment_id, admin_id, reason)
+
+    if result.status is RefundStatus.INVALID:
+        await message.answer(result.error_message)
+    elif result.status is RefundStatus.UNAVAILABLE:
         await message.answer(
             "Возврат недоступен: платёж не найден или не находится в статусе "
             "успешной оплаты."
         )
-        return
-
-    try:
-        provider_refund = (
-            await payment_gateway.get_refund(refund.provider_refund_id)
-            if refund.provider_refund_id
-            else await payment_gateway.create_refund(
-                payment_id=refund.provider_payment_id,
-                amount_minor=refund.amount_minor,
-                description=refund.reason,
-                idempotence_key=str(refund.idempotence_key),
-            )
-        )
-    except PaymentProviderError as error:
-        logger.error(
-            "Refund provider check failed payment_id=%s error_type=%s",
-            payment_id,
-            type(error).__name__,
-        )
+    elif result.status is RefundStatus.PROVIDER_UNAVAILABLE:
         await message.answer(
             "Не удалось подтвердить результат возврата в ЮKassa. Баланс занятий "
             "зарезервирован; повторите /refund_check {} для сверки.".format(payment_id)
         )
-        return
-
-    if (
-        provider_refund.payment_id != refund.provider_payment_id
-        or provider_refund.amount_minor != refund.amount_minor
-        or provider_refund.currency != "RUB"
-    ):
-        logger.error("Refund details mismatch payment_id=%s", payment_id)
+    elif result.status is RefundStatus.MISMATCH:
         await message.answer(
             "Данные возврата не совпали. Баланс зарезервирован; требуется "
             "ручная сверка с ЮKassa."
         )
-        return
-
-    await repository.record_provider_refund(payment_id, provider_refund.refund_id)
-    if provider_refund.status == "succeeded":
-        completed = await repository.complete_lesson_refund(payment_id)
-        if completed:
-            await message.answer(
-                "Возврат подтверждён. Списание {} неиспользованных занятий "
-                "зафиксировано.".format(refund.lessons)
-            )
-            logger.warning(
-                "Admin refund completed payment_id=%s admin_id=%s refund_id=%s",
-                payment_id,
-                admin_id,
-                provider_refund.refund_id,
-            )
-            actions_logger.warning(
-                "action=refund payment_id=%s admin_id=%s refund_id=%s",
-                payment_id,
-                admin_id,
-                provider_refund.refund_id,
-            )
-        else:
-            await message.answer(
-                "ЮKassa подтвердила возврат, но локальная запись уже обработана. "
-                "Проверьте аудит платежа."
-            )
-        return
-
-    if provider_refund.status == "pending":
+    elif result.status is RefundStatus.COMPLETED:
+        await message.answer(
+            "Возврат подтверждён. Списание {} неиспользованных занятий "
+            "зафиксировано.".format(result.lessons)
+        )
+        actions_logger.warning(
+            "action=refund payment_id=%s admin_id=%s refund_id=%s",
+            payment_id,
+            admin_id,
+            result.provider_refund_id,
+        )
+    elif result.status is RefundStatus.ALREADY_PROCESSED:
+        await message.answer(
+            "ЮKassa подтвердила возврат, но локальная запись уже обработана. "
+            "Проверьте аудит платежа."
+        )
+    elif result.status is RefundStatus.PENDING:
         await message.answer(
             "ЮKassa приняла возврат, он ещё обрабатывается. Повторите "
             "/refund_check {} позже.".format(payment_id)
         )
-        return
-    if provider_refund.status == "canceled":
-        released = await repository.release_lesson_refund(payment_id)
-        if released:
-            await message.answer(
-                "ЮKassa отменила возврат. Резерв занятий снят, баланс восстановлен. "
-                "При необходимости можно повторить /refund {} причина.".format(
-                    payment_id
-                )
-            )
-            logger.warning(
-                "Provider canceled lesson refund payment_id=%s refund_id=%s",
-                payment_id,
-                provider_refund.refund_id,
-            )
-            return
-    await message.answer(
-        "ЮKassa вернула статус «{}». Баланс остаётся зарезервированным; "
-        "требуется сверка с провайдером.".format(provider_refund.status)
-    )
+    elif result.status is RefundStatus.RELEASED:
+        await message.answer(
+            "ЮKassa отменила возврат. Резерв занятий снят, баланс восстановлен. "
+            "При необходимости можно повторить /refund {} причина.".format(payment_id)
+        )
+    else:
+        await message.answer(
+            "ЮKassa вернула статус «{}». Баланс остаётся зарезервированным; "
+            "требуется сверка с провайдером.".format(result.provider_status)
+        )
 
 
 @router.message(Command("refund"))

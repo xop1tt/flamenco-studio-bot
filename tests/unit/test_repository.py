@@ -199,7 +199,7 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(migration_calls), 1)
         self.assertEqual(
             self.pool.connection.applied_migrations,
-            {"001", "002", "003", "004"},
+            {"001", "002", "003", "004", "005"},
         )
         await self.repository.close()
 

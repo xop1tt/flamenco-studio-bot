@@ -230,6 +230,42 @@ class PaymentAttemptUnresolved(RuntimeError):
     """An ambiguous checkout must be reviewed instead of creating another charge."""
 
 
+@dataclass(frozen=True)
+class WebUserRecord:
+    """Веб-аккаунт сайта: вход по email/паролю и/или привязанный Telegram.
+
+    Не владеет бизнес-данными бота — только ссылается на telegram_id, под
+    которым они хранятся в bot_users/lesson_*. password_hash не должен
+    попадать за пределы слоя репозитория/сервиса авторизации.
+    """
+
+    id: int
+    email: Optional[str]
+    password_hash: Optional[str]
+    telegram_id: Optional[int]
+    display_name: str
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "WebUserRecord":
+        return cls(
+            id=record["id"],
+            email=record["email"],
+            password_hash=record["password_hash"],
+            telegram_id=record["telegram_id"],
+            display_name=record["display_name"],
+            created_at=record["created_at"],
+        )
+
+
+class EmailAlreadyRegisteredError(ValueError):
+    """На этот email уже зарегистрирован веб-аккаунт."""
+
+
+class TelegramAlreadyLinkedError(ValueError):
+    """Этот Telegram уже привязан к другому веб-аккаунту."""
+
+
 class PostgresRepository:
     supports_durable_payments = True
 
@@ -938,6 +974,120 @@ class PostgresRepository:
             )
         return credits
 
+    async def create_web_user(
+        self,
+        email: str,
+        password_hash: str,
+        display_name: str,
+    ) -> WebUserRecord:
+        async with self._pool.acquire() as connection:
+            try:
+                record = await connection.fetchrow(
+                    """
+                    INSERT INTO users (email, password_hash, display_name)
+                    VALUES ($1, $2, $3)
+                    RETURNING id, email, password_hash, telegram_id, display_name,
+                              created_at
+                    """,
+                    email,
+                    password_hash,
+                    display_name,
+                )
+            except asyncpg.UniqueViolationError as error:
+                raise EmailAlreadyRegisteredError(
+                    "Этот email уже зарегистрирован"
+                ) from error
+        logger.info("Created web user id=%s", record["id"])
+        return WebUserRecord.from_record(record)
+
+    async def get_or_create_web_user_from_telegram(
+        self,
+        telegram_id: int,
+        display_name: str,
+    ) -> WebUserRecord:
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(
+                """
+                INSERT INTO users (telegram_id, display_name)
+                VALUES ($1, $2)
+                ON CONFLICT (telegram_id) DO NOTHING
+                RETURNING id, email, password_hash, telegram_id, display_name,
+                          created_at
+                """,
+                telegram_id,
+                display_name,
+            )
+            if record is None:
+                record = await connection.fetchrow(
+                    """
+                    SELECT id, email, password_hash, telegram_id, display_name,
+                           created_at
+                    FROM users WHERE telegram_id = $1
+                    """,
+                    telegram_id,
+                )
+        return WebUserRecord.from_record(record)
+
+    async def get_web_user_by_id(self, user_id: int) -> Optional[WebUserRecord]:
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(
+                """
+                SELECT id, email, password_hash, telegram_id, display_name, created_at
+                FROM users WHERE id = $1
+                """,
+                user_id,
+            )
+        return WebUserRecord.from_record(record) if record is not None else None
+
+    async def get_web_user_by_email(self, email: str) -> Optional[WebUserRecord]:
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(
+                """
+                SELECT id, email, password_hash, telegram_id, display_name, created_at
+                FROM users WHERE LOWER(email) = LOWER($1)
+                """,
+                email,
+            )
+        return WebUserRecord.from_record(record) if record is not None else None
+
+    async def get_web_user_by_telegram_id(
+        self,
+        telegram_id: int,
+    ) -> Optional[WebUserRecord]:
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(
+                """
+                SELECT id, email, password_hash, telegram_id, display_name, created_at
+                FROM users WHERE telegram_id = $1
+                """,
+                telegram_id,
+            )
+        return WebUserRecord.from_record(record) if record is not None else None
+
+    async def set_web_user_telegram_id(
+        self,
+        user_id: int,
+        telegram_id: Optional[int],
+    ) -> bool:
+        async with self._pool.acquire() as connection:
+            try:
+                result = await connection.execute(
+                    "UPDATE users SET telegram_id = $2, updated_at = NOW() "
+                    "WHERE id = $1",
+                    user_id,
+                    telegram_id,
+                )
+            except asyncpg.UniqueViolationError as error:
+                raise TelegramAlreadyLinkedError(
+                    "Этот Telegram уже привязан к другому аккаунту"
+                ) from error
+        logger.info(
+            "Updated web user telegram link user_id=%s linked=%s",
+            user_id,
+            telegram_id is not None,
+        )
+        return result == "UPDATE 1"
+
     async def close(self) -> None:
         await self._pool.close()
         logger.info("PostgreSQL connection pool closed")
@@ -1598,6 +1748,8 @@ class InMemoryRepository:
         self._next_slot_id = 1
         self._next_booking_id = 1
         self._next_support_ticket_id = 1
+        self._web_users: Dict[int, WebUserRecord] = {}
+        self._next_web_user_id = 1
 
     async def initialize(self) -> None:
         logger.warning("Using in-memory storage; data will be lost at shutdown")
@@ -2396,3 +2548,91 @@ class InMemoryRepository:
             for _, delta, _, ledger_payment_id in self._credit_ledger
             if ledger_payment_id == payment_id
         )
+
+    async def create_web_user(
+        self,
+        email: str,
+        password_hash: str,
+        display_name: str,
+    ) -> WebUserRecord:
+        normalized_email = email.lower()
+        if any(
+            user.email is not None and user.email.lower() == normalized_email
+            for user in self._web_users.values()
+        ):
+            raise EmailAlreadyRegisteredError("Этот email уже зарегистрирован")
+        user = WebUserRecord(
+            id=self._next_web_user_id,
+            email=email,
+            password_hash=password_hash,
+            telegram_id=None,
+            display_name=display_name,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._web_users[user.id] = user
+        self._next_web_user_id += 1
+        return user
+
+    async def get_or_create_web_user_from_telegram(
+        self,
+        telegram_id: int,
+        display_name: str,
+    ) -> WebUserRecord:
+        existing = await self.get_web_user_by_telegram_id(telegram_id)
+        if existing is not None:
+            return existing
+        user = WebUserRecord(
+            id=self._next_web_user_id,
+            email=None,
+            password_hash=None,
+            telegram_id=telegram_id,
+            display_name=display_name,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._web_users[user.id] = user
+        self._next_web_user_id += 1
+        return user
+
+    async def get_web_user_by_id(self, user_id: int) -> Optional[WebUserRecord]:
+        return self._web_users.get(user_id)
+
+    async def get_web_user_by_email(self, email: str) -> Optional[WebUserRecord]:
+        normalized_email = email.lower()
+        for user in self._web_users.values():
+            if user.email is not None and user.email.lower() == normalized_email:
+                return user
+        return None
+
+    async def get_web_user_by_telegram_id(
+        self,
+        telegram_id: int,
+    ) -> Optional[WebUserRecord]:
+        for user in self._web_users.values():
+            if user.telegram_id == telegram_id:
+                return user
+        return None
+
+    async def set_web_user_telegram_id(
+        self,
+        user_id: int,
+        telegram_id: Optional[int],
+    ) -> bool:
+        user = self._web_users.get(user_id)
+        if user is None:
+            return False
+        if telegram_id is not None and any(
+            other.id != user_id and other.telegram_id == telegram_id
+            for other in self._web_users.values()
+        ):
+            raise TelegramAlreadyLinkedError(
+                "Этот Telegram уже привязан к другому аккаунту"
+            )
+        self._web_users[user_id] = WebUserRecord(
+            id=user.id,
+            email=user.email,
+            password_hash=user.password_hash,
+            telegram_id=telegram_id,
+            display_name=user.display_name,
+            created_at=user.created_at,
+        )
+        return True
