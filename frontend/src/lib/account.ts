@@ -58,6 +58,16 @@ export type SupportTicket = {
   last_message: string;
 };
 
+export type PaymentHistoryItem = {
+  id: number;
+  package_key: string;
+  package_title: string;
+  lessons: number;
+  amount_minor: number;
+  status: string;
+  created_at: string;
+};
+
 export async function getProfile(): Promise<Profile | null> {
   return fetchWithSession<Profile>("/api/users/me/profile");
 }
@@ -68,4 +78,8 @@ export async function getMyBookings(): Promise<UserBooking[]> {
 
 export async function getMySupportTickets(): Promise<SupportTicket[]> {
   return (await fetchWithSession<SupportTicket[]>("/api/support/me")) ?? [];
+}
+
+export async function getMyPayments(): Promise<PaymentHistoryItem[]> {
+  return (await fetchWithSession<PaymentHistoryItem[]>("/api/payments/me")) ?? [];
 }

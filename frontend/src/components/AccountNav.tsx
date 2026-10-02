@@ -3,6 +3,7 @@ import Link from "next/link";
 const ACCOUNT_LINKS = [
   { href: "/account", label: "Профиль" },
   { href: "/account/bookings", label: "Мои занятия" },
+  { href: "/account/payments", label: "Платежи" },
   { href: "/account/support", label: "Поддержка" },
 ];
 

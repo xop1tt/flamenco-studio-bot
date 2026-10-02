@@ -1,6 +1,16 @@
+import Link from "next/link";
 import type { LessonPackage } from "@/lib/api";
+import { startCheckoutAction } from "@/lib/actions";
 
-export function PackagesGrid({ packages }: { packages: LessonPackage[] }) {
+type Props = {
+  packages: LessonPackage[];
+  // Кнопка «Купить» показывается только когда передан этот проп (страница
+  // /packages). На главной PackagesGrid используется как читательский
+  // тизер без него — см. src/app/page.tsx.
+  isAuthenticated?: boolean;
+};
+
+export function PackagesGrid({ packages, isAuthenticated }: Props) {
   if (packages.length === 0) {
     return (
       <p className="text-[var(--foreground)]/70">
@@ -19,12 +29,33 @@ export function PackagesGrid({ packages }: { packages: LessonPackage[] }) {
         >
           <div className="text-lg font-semibold">{lessonPackage.title}</div>
           <div className="text-sm text-[var(--foreground)]/70">
-            {lessonPackage.lessons}{" "}
-            {lessonsWord(lessonPackage.lessons)}
+            {lessonPackage.lessons} {lessonsWord(lessonPackage.lessons)}
           </div>
-          <div className="mt-auto text-2xl font-bold text-[var(--accent)]">
+          <div className="text-2xl font-bold text-[var(--accent)]">
             {lessonPackage.price_rub} ₽
           </div>
+          {isAuthenticated !== undefined && (
+            <div className="mt-auto pt-2">
+              {isAuthenticated ? (
+                <form action={startCheckoutAction}>
+                  <input type="hidden" name="package_key" value={lessonPackage.key} />
+                  <button
+                    type="submit"
+                    className="w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                  >
+                    Купить
+                  </button>
+                </form>
+              ) : (
+                <Link
+                  href="/login"
+                  className="block w-full rounded-md bg-[var(--accent)] px-4 py-2 text-center text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  Войти и купить
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>

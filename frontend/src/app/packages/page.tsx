@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getPackages } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { PackagesGrid } from "@/components/PackagesGrid";
 
 export const metadata: Metadata = {
@@ -10,8 +11,18 @@ export const metadata: Metadata = {
 // этапе сборки, иначе сайт будет показывать устаревший каталог.
 export const dynamic = "force-dynamic";
 
-export default async function PackagesPage() {
-  const packages = await getPackages();
+type SearchParams = Promise<{ checkout_error?: string }>;
+
+export default async function PackagesPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const { checkout_error: checkoutError } = await searchParams;
+  const [packages, currentUser] = await Promise.all([
+    getPackages(),
+    getCurrentUser(),
+  ]);
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-12">
@@ -20,7 +31,12 @@ export default async function PackagesPage() {
         Разовое занятие или абонемент на несколько занятий — цены и состав
         всегда актуальны, их определяет студия.
       </p>
-      <PackagesGrid packages={packages} />
+      {checkoutError && (
+        <p className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+          {checkoutError}
+        </p>
+      )}
+      <PackagesGrid packages={packages} isAuthenticated={currentUser !== null} />
     </div>
   );
 }

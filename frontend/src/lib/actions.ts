@@ -138,3 +138,79 @@ export async function bookClassAction(formData: FormData): Promise<void> {
     }),
   );
 }
+
+export async function startCheckoutAction(formData: FormData): Promise<void> {
+  const packageKey = String(formData.get("package_key") ?? "");
+
+  const cookieStore = await cookies();
+  const session = cookieStore.get(SESSION_COOKIE_NAME);
+  if (!session) {
+    redirect("/login");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/payments/checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `${SESSION_COOKIE_NAME}=${session.value}`,
+      },
+      body: JSON.stringify({ package_key: packageKey }),
+    });
+  } catch (error) {
+    console.error("Checkout request failed", error);
+    redirect(
+      "/packages?checkout_error=" +
+        encodeURIComponent("Не удалось связаться с сервером. Попробуйте ещё раз."),
+    );
+  }
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
+
+  if (!response.ok) {
+    // Backend уже формулирует понятную причину (ЮKassa не настроена, пакет
+    // не найден и т.д.) — переиспользуем её вместо своего перевода.
+    let detail = "Не удалось начать оплату. Попробуйте ещё раз позже.";
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // используем сообщение по умолчанию
+    }
+    redirect(`/packages?checkout_error=${encodeURIComponent(detail)}`);
+  }
+
+  const checkout = (await response.json()) as { confirmation_url: string | null };
+  if (!checkout.confirmation_url) {
+    // ЮKassa не вернула безопасную HTTPS-ссылку — платёж уже создан в БД,
+    // но вести пользователя некуда. Отправляем в историю платежей вместо
+    // редиректа в никуда.
+    redirect("/account/payments?checkout_error=no_confirmation_url");
+  }
+  redirect(checkout.confirmation_url);
+}
+
+export async function checkPaymentAction(formData: FormData): Promise<void> {
+  const paymentId = formData.get("payment_id");
+
+  const cookieStore = await cookies();
+  const session = cookieStore.get(SESSION_COOKIE_NAME);
+  if (!session) {
+    redirect("/login");
+  }
+
+  try {
+    await fetch(`${API_BASE_URL}/api/payments/${paymentId}/check`, {
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${session.value}` },
+    });
+  } catch (error) {
+    console.error("Payment status check failed", error);
+  }
+
+  redirect("/account/payments");
+}

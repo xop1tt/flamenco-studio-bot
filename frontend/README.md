@@ -8,9 +8,12 @@ backend API, что описан в корневом `README.md` — сайт н
 Реализовано: публичные страницы без авторизации (Stage 3 — главная,
 расписание, направления, абонементы, контакты), вход через Telegram
 (Stage 4 — `/login`, сессия в httponly-cookie), личный кабинет (Stage 5 —
-`/account`: профиль, баланс, мои занятия, поддержка) и запись на занятия
+`/account`: профиль, баланс, мои занятия, поддержка), запись на занятия
 прямо из расписания (Stage 6 — кнопка «Записаться»/«Войти и записаться» на
-`/schedule`).
+`/schedule`) и оплата абонементов (Stage 7 — кнопка «Купить» на
+`/packages`, история и проверка статуса на `/account/payments`). ЮKassa к
+сайту пока не подключена: `WEB_YOOKASSA_RETURN_URL` на backend пуст, поэтому
+checkout отвечает 503 — весь остальной код уже готов, см. раздел ниже.
 
 ## Запуск
 
@@ -66,22 +69,29 @@ src/
 │       ├── layout.tsx    # guard: редирект на /login без сессии
 │       ├── page.tsx       # профиль + баланс (GET /api/users/me/profile)
 │       ├── bookings/      # мои занятия, предстоящие/прошедшие
+│       ├── payments/      # история платежей + «Проверить оплату»
+│       │                  # (GET /api/payments/me, GET /api/payments/:id/check)
 │       └── support/       # обращения: форма + список (GET/POST /api/support)
 ├── components/
 │   ├── TelegramLoginWidget.tsx   # клиентский компонент — грузит виджет,
 │   │                             # шлёт POST /api/auth/telegram
 │   ├── AccountNav.tsx            # суб-навигация внутри /account
-│   └── BookableScheduleList.tsx  # расписание с кнопкой «Записаться» —
-│                                  # используется на /schedule (не на главной)
+│   ├── BookableScheduleList.tsx  # расписание с кнопкой «Записаться» —
+│   │                              # используется на /schedule (не на главной)
+│   └── PackagesGrid.tsx          # каталог абонементов; кнопка «Купить»
+│                                  # только когда передан isAuthenticated
+│                                  # (на /packages; тизер на главной — без неё)
 └── lib/
     ├── api.ts        # клиент к backend API (GET /api/schedule, /api/packages)
     ├── auth.ts       # getCurrentUser() — читает cookie сессии, спрашивает
     │                 # backend GET /api/auth/me (серверные компоненты)
-    ├── account.ts    # getProfile/getMyBookings/getMySupportTickets — то же,
-    │                 # что auth.ts, но для /api/users, /api/bookings, /api/support
+    ├── account.ts    # getProfile/getMyBookings/getMySupportTickets/
+    │                 # getMyPayments — то же, что auth.ts, но для
+    │                 # /api/users, /api/bookings, /api/support, /api/payments
     ├── actions.ts    # Server Actions: logoutAction, submitSupportMessageAction,
-    │                 # bookClassAction (POST /api/bookings, переиспользует
-    │                 # сообщения об ошибках backend'а вместо своего перевода)
+    │                 # bookClassAction, startCheckoutAction, checkPaymentAction —
+    │                 # все переиспользуют сообщения об ошибках backend'а
+    │                 # вместо своего перевода
     ├── directions.ts # маркетинговые описания направлений (labels совпадают
     │                 # с CLASS_LABELS в src/flamenco_bot/class_catalog.py)
     └── format.ts      # форматирование дат/времени
@@ -92,6 +102,34 @@ src/
 backend через `rewrites()` в `next.config.ts` — отдельного CORS или
 публичного порта у `api` для этого не нужно.
 
+## Оплата (ЮKassa) — подготовлено, но не подключено
+
+Весь путь готов и покрыт тестами (`tests/unit/test_api_payments.py`), но
+намеренно не принимает реальные платежи: на backend пуст
+`WEB_YOOKASSA_RETURN_URL` (см. корневой `env.example`), поэтому
+`POST /api/payments/checkout` отвечает `503 "ЮKassa не настроена"` — та же
+кнопка «Купить» и та же страница `/account/payments` уже работают с этим
+статусом (показывают понятную ошибку, не падают).
+
+Что сделано:
+- `/packages` — кнопка «Купить» (авторизован) / «Войти и купить» (нет сессии)
+  на каждом пакете, `startCheckoutAction` → `POST /api/payments/checkout`.
+- При успехе — редирект на `confirmation_url` ЮKassa (внешний URL).
+- `/account/payments` — история платежей + кнопка «Проверить оплату» для
+  незавершённых (`checkPaymentAction` → `GET /api/payments/:id/check`), тот
+  же принцип, что и в боте: никакого webhook, статус сверяется вручную по
+  кнопке.
+
+Что нужно сделать, чтобы включить реальные платежи:
+1. Указать `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` в `.env` (если ещё не
+   указаны для бота — используется один и тот же магазин).
+2. Указать `WEB_YOOKASSA_RETURN_URL` — адрес сайта, куда ЮKassa вернёт
+   пользователя после оплаты, например
+   `https://your-domain.example/account/payments`.
+3. Перезапустить `api` (или весь `docker compose up -d --build`).
+
+Фронтенд менять не нужно — он уже полностью готов к этому переключению.
+
 ## Известные ограничения (Follow-up)
 
 - На странице «Контакты» — плейсхолдеры (адрес/телефон/соцсети/ссылка на
@@ -100,9 +138,6 @@ backend через `rewrites()` в `next.config.ts` — отдельного COR
 - Вход только через Telegram; `/api/auth/register` и `/api/auth/login`
   (email/пароль) на backend есть, но на сайте для них пока нет формы —
   добавить, если продукту нужен вход без Telegram.
-- История платежей в кабинете не показана — на backend пока нет
-  `/api/payments` (платежи — Stage 7, сознательно отложены, деньги требуют
-  отдельного решения).
 - Отмена записи — нет ни UI, ни backend-эндпоинта (в боте такого тоже нет,
   правило не определено — см. `WEBSITE_PLAN.md`, раздел 14: "не придумывать
   новые правила самостоятельно"). Привязка/отвязка Telegram из кабинета —
