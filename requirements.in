@@ -2,7 +2,7 @@ aiogram==3.31.0
 aiohttp==3.14.3
 asyncpg==0.31.0
 coverage==7.16.2
-fastapi==0.128.8
+fastapi==0.142.2
 httpx==0.28.1
 python-dotenv==1.2.3
 ruff==0.16.9
