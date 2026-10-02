@@ -317,6 +317,8 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "Integration test participant",
                 False,
             )
+        for telegram_id in (self.telegram_id, *additional_users):
+            await self._grant_credits(telegram_id, 1)
 
         slot = await repository.create_class_slot(
             "beginner",
