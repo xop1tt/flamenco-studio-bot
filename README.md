@@ -266,6 +266,7 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 | `ENV` | Нет | `development` (по умолчанию) или `production` |
 | `ADMINS` | Нет | Список Telegram ID через запятую для системных уведомлений; **не выдаёт административные права** |
 | `SESSION_SECRET_KEY` | Для веб-API | Секрет подписи сессионных cookie сайта (`flamenco_bot.api`); сгенерировать: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Для сайта | Публичный `@username` бота для Telegram Login Widget (не секрет); нужен только `docker compose build` для `frontend`, см. `compose.yaml` |
 | `DATABASE_URL` | Для production | Строка подключения PostgreSQL |
 | `DATABASE_SSL_MODE` | Нет | `verify-full` по умолчанию; `disable` допустим только для локальной разработки |
 | `DATABASE_SSL_CA` | Нет | Путь к PEM-сертификату частного центра сертификации |

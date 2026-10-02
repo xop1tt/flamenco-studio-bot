@@ -56,6 +56,12 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        # NEXT_PUBLIC_* переменные Next.js встраивает в клиентский бандл на
+        # этапе сборки, а не читает при старте контейнера — поэтому это
+        # build arg, а не environment: ниже. Значение берётся из корневого
+        # .env (см. env.example), не из frontend/.env.local.
+        NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${NEXT_PUBLIC_TELEGRAM_BOT_USERNAME:?Set NEXT_PUBLIC_TELEGRAM_BOT_USERNAME to the bot's public @username}
     image: flamenco-studio-frontend:local
     init: true
     restart: unless-stopped

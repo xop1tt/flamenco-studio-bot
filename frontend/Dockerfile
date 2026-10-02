@@ -8,7 +8,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # next.config.ts reads API_BASE_URL only at request time (server-side fetch
-# and the rewrites() destination), not during the build — no build ARG needed.
+# and the rewrites() destination), not during the build — no build ARG
+# needed for it. NEXT_PUBLIC_* variables are the opposite: Next.js inlines
+# them into the client bundle at build time, so this one must be supplied
+# as a build ARG (see compose.yaml's frontend.build.args).
+ARG NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
+ENV NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=$NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
 RUN npm run build
 
 FROM node:24-slim AS runner
