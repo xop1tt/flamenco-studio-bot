@@ -274,7 +274,8 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 | `DATABASE_POOL_MAX_SIZE` | Нет | Максимум подключений пула, по умолчанию `10` |
 | `YOOKASSA_SHOP_ID` | Для платежей | Идентификатор магазина ЮKassa |
 | `YOOKASSA_SECRET_KEY` | Для платежей | Секретный ключ ЮKassa |
-| `YOOKASSA_RETURN_URL` | Для платежей | URL возврата после checkout |
+| `YOOKASSA_RETURN_URL` | Для платежей | URL возврата после checkout, начатого в боте |
+| `WEB_YOOKASSA_RETURN_URL` | Для платежей на сайте | Отдельный URL возврата для checkout, начатого на сайте (`/api/payments`); пока пуст — оплата на сайте отвечает 503 |
 | `BACKUP_*` | Для backup sidecar | Параметры PostgreSQL, Docker-сеть, ключ шифрования и срок хранения; см. раздел о резервных копиях |
 
 Полный шаблон находится в [`env.example`](https://github.com/xop1tt/flamenco-studio-bot/blob/main/env.example).
@@ -404,6 +405,13 @@ checkout и кнопку ручной проверки статуса. Публ�
 [`payments/catalog.py`](https://github.com/xop1tt/flamenco-studio-bot/blob/main/src/flamenco_bot/payments/catalog.py)
 сейчас заданы демонстрационные пакеты и цены. Проверьте их и замените перед
 подключением live-реквизитов.
+
+Сайт использует тот же `PaymentService` и тот же YooKassaClient (`/api/payments`
+— checkout, сверка статуса, история), но с отдельным `WEB_YOOKASSA_RETURN_URL`
+— см. выше. Пока эта переменная не задана, `/api/payments/checkout` отвечает
+503: UI на сайте уже готов (каталог, кнопка «Купить», история платежей), но
+реальных оплат принять не может — осознанно, до отдельного решения о
+подключении ЮKassa к сайту.
 
 > [!CAUTION]
 > До приёма реальных оплат проверьте весь процесс в тестовом кабинете, включая

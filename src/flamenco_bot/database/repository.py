@@ -259,6 +259,36 @@ class PaymentAttemptUnresolved(RuntimeError):
 
 
 @dataclass(frozen=True)
+class LessonPaymentHistoryItem:
+    """Строка истории платежей пользователя (список, не детали для сверки).
+
+    Отдельный тип от ``LessonPayment``: тот используется в checkout/сверке
+    и не несёт ``created_at`` (не было нужно ни одному из существующих
+    вызовов), здесь же дата — главное поле для отображения списка.
+    """
+
+    id: int
+    package_key: str
+    package_title: str
+    lessons: int
+    amount_minor: int
+    status: str
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> "LessonPaymentHistoryItem":
+        return cls(
+            id=record["id"],
+            package_key=record["package_key"],
+            package_title=record["package_title"],
+            lessons=record["lessons"],
+            amount_minor=record["amount_minor"],
+            status=record["status"],
+            created_at=record["created_at"],
+        )
+
+
+@dataclass(frozen=True)
 class WebUserRecord:
     """Веб-аккаунт сайта: вход по email/паролю и/или привязанный Telegram.
 
@@ -1001,6 +1031,28 @@ class PostgresRepository:
                 "Профиль не найден для Telegram ID {}".format(telegram_id)
             )
         return credits
+
+    async def list_lesson_payments_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 20,
+    ) -> Sequence[LessonPaymentHistoryItem]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество платежей должно быть от 1 до 100")
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(
+                """
+                SELECT id, package_key, package_title, lessons, amount_minor,
+                       status, created_at
+                FROM lesson_payments
+                WHERE telegram_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                telegram_id,
+                limit,
+            )
+        return [LessonPaymentHistoryItem.from_record(record) for record in records]
 
     async def create_web_user(
         self,
@@ -1825,6 +1877,9 @@ class InMemoryRepository:
         self._profiles: Dict[int, UserProfile] = {}
         self._requests: Dict[int, LessonRequest] = {}
         self._payments: Dict[int, LessonPayment] = {}
+        # LessonPayment (используется в checkout/сверке) не несёт created_at —
+        # отдельный словарь только для list_lesson_payments_for_telegram_id.
+        self._payment_created_at: Dict[int, datetime] = {}
         self._payment_attempts: Dict[Tuple[int, str], LessonPaymentAttempt] = {}
         self._credit_ledger: list[Tuple[int, int, str, Optional[int]]] = []
         self._class_slots: Dict[int, ClassSlot] = {}
@@ -1985,6 +2040,7 @@ class InMemoryRepository:
         if existing is not None:
             return existing
         self._payments[payment.id] = payment
+        self._payment_created_at[payment.id] = datetime.now(timezone.utc)
         self._next_payment_id += 1
         self._payment_attempts[(telegram_id, package_key)] = LessonPaymentAttempt(
             idempotence_key=idempotence_key,
@@ -2252,6 +2308,31 @@ class InMemoryRepository:
 
     async def get_lesson_credits(self, telegram_id: int) -> int:
         return self._get_profile(telegram_id).lesson_credits
+
+    async def list_lesson_payments_for_telegram_id(
+        self,
+        telegram_id: int,
+        limit: int = 20,
+    ) -> Sequence[LessonPaymentHistoryItem]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Количество платежей должно быть от 1 до 100")
+        items = [
+            LessonPaymentHistoryItem(
+                id=payment.id,
+                package_key=payment.package_key,
+                package_title=payment.package_title,
+                lessons=payment.lessons,
+                amount_minor=payment.amount_minor,
+                status=payment.status,
+                created_at=self._payment_created_at.get(
+                    payment.id, datetime.now(timezone.utc)
+                ),
+            )
+            for payment in self._payments.values()
+            if payment.telegram_id == telegram_id
+        ]
+        items.sort(key=lambda item: item.created_at, reverse=True)
+        return items[:limit]
 
     async def search_profiles(
         self,

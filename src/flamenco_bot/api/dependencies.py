@@ -6,7 +6,13 @@ from fastapi import Cookie, Depends, HTTPException, Request, status
 
 from ..database.repository import WebUserRecord
 from ..runtime.security import SupportRateLimiter
-from ..services import AdminNotifier, AuthService, BookingService, SupportService
+from ..services import (
+    AdminNotifier,
+    AuthService,
+    BookingService,
+    PaymentService,
+    SupportService,
+)
 from .security import SESSION_COOKIE_NAME, read_session_user_id
 
 
@@ -28,6 +34,10 @@ def get_bot(request: Request) -> Any:
 
 def get_support_limiter(request: Request) -> SupportRateLimiter:
     return request.app.state.support_limiter
+
+
+def get_payment_gateway(request: Request) -> Any:
+    return request.app.state.payment_gateway
 
 
 async def get_current_user(
@@ -76,3 +86,7 @@ def get_support_service(request: Request) -> SupportService:
         get_support_limiter(request),
         get_admin_notifier(request),
     )
+
+
+def get_payment_service(request: Request) -> PaymentService:
+    return PaymentService(get_repository(request), get_payment_gateway(request))

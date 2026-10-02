@@ -294,6 +294,58 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual((stats.total_users, stats.online_users), (1, 1))
 
+    async def test_in_memory_payment_history_is_scoped_and_ordered(self):
+        repository = InMemoryRepository()
+        await repository.get_or_create_profile(1001, "Анна", False)
+        await repository.get_or_create_profile(1002, "Мария", False)
+
+        first_attempt = await repository.begin_lesson_payment_attempt(
+            1001, "single", "Разовое занятие", 1, 100000
+        )
+        await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="single",
+            package_title="Разовое занятие",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="provider-payment-1",
+            confirmation_url="https://pay.example.test/1",
+            idempotence_key=first_attempt.idempotence_key,
+        )
+        second_attempt = await repository.begin_lesson_payment_attempt(
+            1001, "pack_4", "Абонемент на 4 занятия", 4, 360000
+        )
+        second_payment = await repository.create_lesson_payment(
+            telegram_id=1001,
+            package_key="pack_4",
+            package_title="Абонемент на 4 занятия",
+            lessons=4,
+            amount_minor=360000,
+            provider_payment_id="provider-payment-2",
+            confirmation_url="https://pay.example.test/2",
+            idempotence_key=second_attempt.idempotence_key,
+        )
+        other_user_attempt = await repository.begin_lesson_payment_attempt(
+            1002, "single", "Разовое занятие", 1, 100000
+        )
+        await repository.create_lesson_payment(
+            telegram_id=1002,
+            package_key="single",
+            package_title="Разовое занятие",
+            lessons=1,
+            amount_minor=100000,
+            provider_payment_id="provider-payment-3",
+            confirmation_url="https://pay.example.test/3",
+            idempotence_key=other_user_attempt.idempotence_key,
+        )
+
+        history = await repository.list_lesson_payments_for_telegram_id(1001)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0].id, second_payment.id)
+        self.assertEqual(history[0].package_key, "pack_4")
+        self.assertEqual(history[0].status, "pending")
+        self.assertEqual(history[1].package_key, "single")
+
     async def test_in_memory_refund_reserves_and_reconciles_credits_once(self):
         repository = InMemoryRepository()
         await repository.get_or_create_profile(1001, "Анна", False)

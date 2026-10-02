@@ -13,13 +13,14 @@ from ..class_catalog import CLASS_LABELS
 from ..database.repository import (
     ClassBooking,
     ClassSlot,
+    LessonPaymentHistoryItem,
     SupportTicket,
     UserBooking,
     UserProfile,
     WebUserRecord,
 )
 from ..payments import LessonPackage
-from ..services import SupportSubmission
+from ..services import CheckoutResult, SupportSubmission
 
 
 class RegisterRequest(BaseModel):
@@ -219,3 +220,55 @@ class ProfileResponse(BaseModel):
 
 class UpdateProfileNameRequest(BaseModel):
     user_name: str = Field(min_length=1, max_length=64)
+
+
+class CheckoutRequest(BaseModel):
+    package_key: str = Field(min_length=1, max_length=64)
+
+
+class CheckoutResponse(BaseModel):
+    payment_id: int
+    package_key: str
+    amount_minor: int
+    # None, если провайдер не вернул безопасную HTTPS-ссылку — см.
+    # services.payments.safe_confirmation_url. Фронтенд должен сам решить,
+    # что показать пользователю в этом случае (не редиректить на пустоту).
+    confirmation_url: Optional[str]
+
+    @classmethod
+    def from_result(cls, result: CheckoutResult) -> "CheckoutResponse":
+        return cls(
+            payment_id=result.payment.id,
+            package_key=result.package_key,
+            amount_minor=result.amount_minor,
+            confirmation_url=result.confirmation_url,
+        )
+
+
+class PaymentStatusResponse(BaseModel):
+    status: str
+    credits: Optional[int] = None
+
+
+class PaymentHistoryItemResponse(BaseModel):
+    id: int
+    package_key: str
+    package_title: str
+    lessons: int
+    amount_minor: int
+    status: str
+    created_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, item: LessonPaymentHistoryItem
+    ) -> "PaymentHistoryItemResponse":
+        return cls(
+            id=item.id,
+            package_key=item.package_key,
+            package_title=item.package_title,
+            lessons=item.lessons,
+            amount_minor=item.amount_minor,
+            status=item.status,
+            created_at=item.created_at,
+        )

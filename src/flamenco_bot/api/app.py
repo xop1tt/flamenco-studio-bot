@@ -13,12 +13,14 @@ from aiogram import Bot
 from fastapi import FastAPI
 
 from ..database import InMemoryRepository, PostgresRepository, is_database_configured
+from ..payments import YooKassaClient
 from ..runtime.security import SupportRateLimiter
 from ..services import AuthService
 from .config import WebConfig
 from .routers.auth import router as auth_router
 from .routers.bookings import router as bookings_router
 from .routers.packages import router as packages_router
+from .routers.payments import router as payments_router
 from .routers.schedule import router as schedule_router
 from .routers.support import router as support_router
 from .routers.users import router as users_router
@@ -56,11 +58,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # администраторам (AdminNotifier), не для приёма обновлений/polling.
     bot = Bot(token=WebConfig.BOT_TOKEN)
 
+    # Тот же shop_id/secret_key, что у бота (один магазин ЮKassa), но
+    # отдельный return_url — оплата, начатая на сайте, должна вернуть
+    # пользователя на сайт, а не в Telegram-чат бота. Пока
+    # WEB_YOOKASSA_RETURN_URL не задан, YooKassaClient.is_configured — False
+    # и checkout на сайте недоступен (503), что ожидаемо на этом этапе.
+    payment_gateway = YooKassaClient(
+        WebConfig.YOOKASSA_SHOP_ID,
+        WebConfig.YOOKASSA_SECRET_KEY,
+        WebConfig.WEB_YOOKASSA_RETURN_URL,
+    )
+
     app.state.repository = repository
     app.state.auth_service = AuthService(repository, WebConfig.BOT_TOKEN)
     app.state.session_secret_key = WebConfig.SESSION_SECRET_KEY
     app.state.bot = bot
     app.state.support_limiter = SupportRateLimiter()
+    app.state.payment_gateway = payment_gateway
     try:
         yield
     finally:
@@ -76,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(bookings_router)
     app.include_router(support_router)
     app.include_router(users_router)
+    app.include_router(payments_router)
 
     @app.get("/api/health")
     async def health() -> dict:
