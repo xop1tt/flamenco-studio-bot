@@ -14,10 +14,18 @@ type Props = {
 export function PackagesGrid({ packages, isAuthenticated }: Props) {
   if (packages.length === 0) {
     return (
-      <p className="text-[var(--text-secondary)]">
-        Каталог абонементов сейчас недоступен. Попробуйте обновить страницу
-        позже.
-      </p>
+      <div className="glass-medium flex flex-col items-start gap-3 rounded-[24px] p-6">
+        <p className="text-[var(--text-secondary)]">
+          Каталог абонементов сейчас недоступен. Попробуйте обновить страницу
+          позже.
+        </p>
+        <Link
+          href="/contact"
+          className="rounded-full bg-[var(--primary)] px-5 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+        >
+          Написать, чтобы уточнить цены
+        </Link>
+      </div>
     );
   }
 

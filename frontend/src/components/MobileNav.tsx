@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink } from "./NavLink";
 
 type NavItem = { href: string; label: string };
@@ -16,9 +16,35 @@ export function MobileNav({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Закрытие по клику снаружи и по Escape — ожидаемое поведение для
+  // выпадающего меню, иначе единственный способ закрыть его — повторно
+  // попасть по кнопке-гамбургеру.
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   return (
-    <div className="relative sm:hidden">
+    <div ref={rootRef} className="relative sm:hidden">
       <button
         type="button"
         aria-label={open ? "Закрыть меню" : "Открыть меню"}

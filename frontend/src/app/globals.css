@@ -180,7 +180,23 @@ body {
 
 /* Футер — обычная поверхность, не стекло: он не "парит" над сценой. */
 .footer-surface {
+  position: relative;
   background: color-mix(in srgb, var(--surface-secondary) 92%, transparent);
+}
+
+/* На главной футер идёт сразу после тёмной CTA-сцены (fixed .stage, #070304
+   позади контента) — без перехода это был бы резкий пиксель-в-пиксель
+   обрез тёмного в светлое. Scoped через :has(), чтобы на остальных
+   страницах (где перед футером никакой тёмной сцены нет) футер не менялся. */
+body:has([data-scene="cta"]) .footer-surface::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 120px;
+  background: linear-gradient(to bottom, #070304, transparent);
+  pointer-events: none;
 }
 
 /* ==========================================================================
