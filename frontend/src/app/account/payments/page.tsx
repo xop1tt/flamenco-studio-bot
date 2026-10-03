@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 import { getMyPayments, type PaymentHistoryItem } from "@/lib/account";
 import { checkPaymentAction } from "@/lib/actions";
 import { formatClassDateTime } from "@/lib/format";
@@ -60,7 +61,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
       {payments.map((payment) => (
         <li
           key={payment.id}
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)]"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl glass-medium p-4"
         >
           <div className="flex flex-col gap-1">
             <span className="font-medium">{payment.package_title}</span>
@@ -78,7 +79,7 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
                 <input type="hidden" name="payment_id" value={payment.id} />
                 <button
                   type="submit"
-                  className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-1.5 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  className={`${GLASS_BUTTON_CLASS} px-4 py-1.5 text-sm`}
                 >
                   Проверить оплату
                 </button>

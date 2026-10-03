@@ -42,7 +42,7 @@ function BookableScheduleCard({
   const soldOut = !bookable;
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] glass-medium glass-specular p-5 transition hover:-translate-y-0.5">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{slot.class_label}</span>

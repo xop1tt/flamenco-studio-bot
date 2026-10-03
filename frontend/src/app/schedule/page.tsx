@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 import { getSchedule } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { BookableScheduleList } from "@/components/BookableScheduleList";
@@ -40,8 +41,11 @@ export default async function SchedulePage({
   ]);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-semibold">Расписание</h1>
+    <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-12 sm:py-16">
+      <div className="flex flex-col gap-3">
+        <span className="eyebrow">Mirada Studio</span>
+        <h1 className="font-heading text-4xl font-bold tracking-tight sm:text-5xl">Расписание</h1>
+      </div>
 
       {booked && (
         <p className="rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
@@ -93,7 +97,7 @@ function FilterLink({
       className={
         active
           ? "rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)]"
-          : "rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-2 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          : `${GLASS_BUTTON_CLASS} px-4 py-2 text-sm`
       }
     >
       {label}

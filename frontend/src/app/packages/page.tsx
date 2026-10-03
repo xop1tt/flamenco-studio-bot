@@ -25,9 +25,12 @@ export default async function PackagesPage({
   ]);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-semibold">Абонементы</h1>
-      <p className="max-w-2xl text-[var(--text-secondary)]">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-12 sm:py-16">
+      <div className="flex flex-col gap-3">
+        <span className="eyebrow">Mirada Studio</span>
+        <h1 className="font-heading text-4xl font-bold tracking-tight sm:text-5xl">Абонементы</h1>
+      </div>
+      <p className="max-w-2xl text-lg text-[var(--text-secondary)]">
         Разовое занятие или абонемент на несколько занятий — цены и состав
         всегда актуальны, их определяет студия.
       </p>

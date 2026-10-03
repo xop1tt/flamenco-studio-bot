@@ -19,7 +19,7 @@ export default async function AccountProfilePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
+      <section className="rounded-2xl glass-medium p-6">
         <h2 className="mb-4 text-xl font-semibold">Профиль</h2>
         <dl className="flex flex-col gap-3">
           <Row label="Имя" value={profile.user_name} />
@@ -33,7 +33,7 @@ export default async function AccountProfilePage() {
         </dl>
       </section>
 
-      <section className="rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
+      <section className="rounded-2xl glass-medium p-6">
         <h2 className="mb-2 text-xl font-semibold">Баланс</h2>
         <p className="text-3xl font-bold text-[var(--primary)]">
           {profile.lesson_credits}

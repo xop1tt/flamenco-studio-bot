@@ -3,28 +3,23 @@
 import { useEffect, useSyncExternalStore } from "react";
 import {
   applyTheme,
+  getResolvedThemeSnapshot,
+  getServerResolvedTheme,
   getServerThemePreference,
-  getSystemTheme,
   getThemePreference,
   setThemePreference,
+  subscribeResolvedTheme,
   subscribeThemePreference,
-  type ThemePreference,
+  type ResolvedTheme,
 } from "@/lib/theme";
 
-const LABELS: Record<ThemePreference, string> = {
+const LABELS: Record<ResolvedTheme, string> = {
   light: "Светлая тема",
   dark: "Тёмная тема",
-  system: "Системная тема",
 };
 
-const NEXT_PREFERENCE: Record<ThemePreference, ThemePreference> = {
-  light: "dark",
-  dark: "system",
-  system: "light",
-};
-
-function ThemeIcon({ preference }: { preference: ThemePreference }) {
-  if (preference === "light") {
+function ThemeIcon({ resolved }: { resolved: ResolvedTheme }) {
+  if (resolved === "light") {
     return (
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <circle cx="12" cy="12" r="4.5" />
@@ -32,36 +27,36 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
       </svg>
     );
   }
-  if (preference === "dark") {
-    return (
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5Z" />
-      </svg>
-    );
-  }
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4.5" width="18" height="12" rx="1.5" />
-      <path d="M8.5 20h7M12 16.5V20" />
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5Z" />
     </svg>
   );
 }
 
-// Переключатель темы: три состояния по кругу (светлая → тёмная →
-// системная → ...). Предпочтение читается из localStorage через
-// useSyncExternalStore — на сервере и при первом клиентском рендере это
-// всегда "system" (см. getServerThemePreference), а сразу после гидратации
-// React сам подставляет настоящее значение, без ручного мигания и без
-// setState в эффекте на маунте.
+// Переключатель темы: только два явных состояния — светлая/тёмная, без
+// отдельного пункта «как на устройстве» в самом переключателе. Системная
+// тема остаётся поведением по умолчанию до первого клика (см.
+// THEME_INIT_SCRIPT в layout.tsx и resolveTheme в lib/theme.ts — preference
+// "system" там никуда не делась, просто кнопка больше не предлагает выбрать
+// её явно и всегда переключает между light/dark).
 export function ThemeToggle() {
   const preference = useSyncExternalStore(
     subscribeThemePreference,
     getThemePreference,
     getServerThemePreference,
   );
+  // Отдельный стор, а не resolveTheme(preference) прямо в рендере — см.
+  // комментарий у getResolvedThemeSnapshot в lib/theme.ts (иначе hydration
+  // mismatch на системной тёмной теме).
+  const resolved = useSyncExternalStore(
+    subscribeResolvedTheme,
+    getResolvedThemeSnapshot,
+    getServerResolvedTheme,
+  );
 
-  // Пока открыта «системная» тема, следим за изменением настройки ОС и
-  // сразу применяем её к <html> — без ожидания перезагрузки страницы.
+  // Пока пользователь ещё не кликал (preference === "system"), следим за
+  // изменением настройки ОС и сразу применяем её к <html>.
   useEffect(() => {
     if (preference !== "system") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -70,28 +65,25 @@ export function ThemeToggle() {
     return () => media.removeEventListener("change", onChange);
   }, [preference]);
 
-  function cycle() {
-    setThemePreference(NEXT_PREFERENCE[preference]);
+  function toggle() {
+    setThemePreference(resolved === "dark" ? "light" : "dark");
   }
 
-  const systemGuess =
-    typeof window !== "undefined" && getSystemTheme() === "dark" ? "тёмная" : "светлая";
-  const label =
-    preference === "system" ? `${LABELS.system} (сейчас ${systemGuess})` : LABELS[preference];
+  const label = LABELS[resolved];
 
   return (
     <button
       type="button"
-      onClick={cycle}
+      onClick={toggle}
       aria-label={`Тема оформления: ${label}. Нажмите, чтобы переключить.`}
       title={label}
-      // До гидратации systemGuess всегда "светлая" (на сервере нет window),
+      // До гидратации resolved всегда "light" (на сервере нет window),
       // поэтому подпись может на долю секунды отличаться от финальной —
       // ожидаемо и безопасно, гасим предупреждение React об этом.
       suppressHydrationWarning
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-primary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+      className="glass-subtle glass-interactive flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--text-primary)] hover:text-[var(--primary)]"
     >
-      <ThemeIcon preference={preference} />
+      <ThemeIcon resolved={resolved} />
     </button>
   );
 }

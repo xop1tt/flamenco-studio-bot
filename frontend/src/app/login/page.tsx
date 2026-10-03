@@ -22,7 +22,7 @@ export default async function LoginPage() {
       <p className="text-base leading-relaxed text-[var(--text-secondary)]">
         Войдите через Telegram — это тот же аккаунт, что в боте студии.
       </p>
-      <div className="w-full rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
+      <div className="w-full rounded-2xl glass-medium p-6">
         <TelegramLoginWidget />
       </div>
     </div>

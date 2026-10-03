@@ -13,6 +13,7 @@ export type ResolvedTheme = "light" | "dark";
 export const THEME_STORAGE_KEY = "theme";
 
 export function getSystemTheme(): ResolvedTheme {
+  if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -65,4 +66,35 @@ export function setThemePreference(preference: ThemePreference) {
   localStorage.setItem(THEME_STORAGE_KEY, preference);
   applyTheme(preference);
   notifyListeners();
+}
+
+// Итоговая (resolved light/dark) тема для отображения в ThemeToggle — через
+// отдельный useSyncExternalStore, а не прямой вызов resolveTheme() в теле
+// компонента. Важно: resolveTheme читает window.matchMedia, а на сервере
+// window нет — если звать её прямо при рендере, первый клиентский рендер
+// (который должен побитово совпасть с серверным) вместо "light"-заглушки
+// сразу получит настоящую тему устройства. При системной тёмной теме это
+// рассинхронизирует разметку (иконка/SVG отличаются) — React посчитает это
+// hydration mismatch, выбросит поддерево и перерендерит с нуля, стирая по
+// пути data-theme, который успел выставить синхronный no-flash скрипт.
+// getServerResolvedTheme/getResolvedThemeSnapshot — то же решение, что и
+// getServerThemePreference для preference: первый клиентский рендер ==
+// серверный ("light"), а настоящее значение подставляется отдельным пассом
+// после гидратации — это и есть контракt useSyncExternalStore.
+export function getResolvedThemeSnapshot(): ResolvedTheme {
+  return resolveTheme(getThemePreference());
+}
+
+export function getServerResolvedTheme(): ResolvedTheme {
+  return "light";
+}
+
+export function subscribeResolvedTheme(callback: () => void) {
+  const unsubscribe = subscribeThemePreference(callback);
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", callback);
+  return () => {
+    unsubscribe();
+    media.removeEventListener("change", callback);
+  };
 }

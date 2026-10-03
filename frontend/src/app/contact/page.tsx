@@ -1,26 +1,22 @@
 import type { Metadata } from "next";
+import { CONTACTS } from "@/lib/contacts";
 
 export const metadata: Metadata = {
   title: "Контакты",
 };
 
-// Плейсхолдеры: в репозитории нет реальных контактных данных студии
-// (адрес/телефон/email). Замените на настоящие значения перед запуском
-// сайта. Telegram-бот — не плейсхолдер, username уже настроен в окружении
-// (тот же, что используется в hero на главной и для входа).
-const CONTACTS = {
-  address: "Адрес уточняется",
-  phone: "Телефон уточняется",
-  email: "Email уточняется",
-};
-
+// Telegram-бот — не плейсхолдер, username уже настроен в окружении (тот же,
+// что используется в hero на главной и для входа).
 const TELEGRAM_BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
 
 export default function ContactPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-12">
-      <h1 className="text-3xl font-semibold">Контакты</h1>
-      <p className="text-base leading-relaxed text-[var(--text-secondary)]">
+    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-12 sm:py-16">
+      <div className="flex flex-col gap-3">
+        <span className="eyebrow">Mirada Studio</span>
+        <h1 className="font-heading text-4xl font-bold tracking-tight sm:text-5xl">Контакты</h1>
+      </div>
+      <p className="text-lg leading-relaxed text-[var(--text-secondary)]">
         Свяжитесь со студией любым удобным способом — поможем выбрать
         направление и время занятия.
       </p>
@@ -34,7 +30,7 @@ export default function ContactPage() {
           Написать в Telegram
         </a>
       )}
-      <dl className="flex flex-col gap-4 rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
+      <dl className="flex flex-col gap-4 rounded-[28px] glass-medium p-7">
         <ContactRow label="Адрес" value={CONTACTS.address} />
         <ContactRow label="Телефон" value={CONTACTS.phone} />
         <ContactRow
@@ -46,8 +42,8 @@ export default function ContactPage() {
 
       {/* Плейсхолдер: имя преподавателя, фото зала и отзывы — реальный контент
           студии, его нельзя выдумывать. Заполнить перед запуском. */}
-      <div className="rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
-        <h2 className="mb-2 text-xl font-semibold">
+      <div className="rounded-[28px] glass-medium p-7">
+        <h2 className="font-heading mb-2 text-xl font-bold tracking-tight">
           Как проходит первое занятие
         </h2>
         <p className="text-base leading-relaxed text-[var(--text-secondary)]">

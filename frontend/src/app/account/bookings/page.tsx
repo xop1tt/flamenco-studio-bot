@@ -87,7 +87,7 @@ function BookingList({
       {bookings.map((booking) => (
         <li
           key={booking.id}
-          className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)]"
+          className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl glass-medium p-4"
         >
           <span className="font-medium">{booking.class_label}</span>
           <span className="text-sm text-[var(--text-secondary)]">

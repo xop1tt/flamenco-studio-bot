@@ -27,7 +27,7 @@ export default async function AccountSupportPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <section className="rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
+      <section className="rounded-2xl glass-medium p-6">
         <h2 className="mb-4 text-xl font-semibold">Новое обращение</h2>
         {submitted && (
           <p className="mb-4 rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
@@ -70,7 +70,7 @@ export default async function AccountSupportPage({
             {tickets.map((ticket) => (
               <li
                 key={ticket.id}
-                className="flex flex-col gap-1 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)]"
+                className="flex flex-col gap-1 rounded-2xl glass-medium p-4"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">Обращение №{ticket.id}</span>

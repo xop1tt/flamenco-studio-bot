@@ -7,7 +7,7 @@ import { formatClassDateTime } from "@/lib/format";
 // (то, что занятий пока нет).
 export function EmptyScheduleNotice() {
   return (
-    <div className="glass-card flex flex-col items-start gap-3 rounded-2xl p-5">
+    <div className="glass-medium flex flex-col items-start gap-3 rounded-[24px] p-6">
       <p className="text-[var(--text-secondary)]">
         Подбираем ближайшие группы. Оставьте заявку — пришлём удобные
         варианты, как только расписание сформируется.
@@ -36,7 +36,7 @@ export function ScheduleCard({ slot }: { slot: ClassSlot }) {
   const soldOut = slot.status !== "open" || slot.remaining <= 0;
 
   return (
-    <li className="flex flex-col gap-2 rounded-2xl glass-card p-4 shadow-[var(--shadow-card)] transition hover:shadow-[var(--shadow-card-hover)]">
+    <li className="flex flex-col gap-2 rounded-[24px] glass-medium glass-specular p-5 transition hover:-translate-y-0.5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium">{slot.class_label}</span>
         <span className="text-sm text-[var(--text-secondary)]">

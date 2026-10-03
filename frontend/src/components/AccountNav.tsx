@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 
 const ACCOUNT_LINKS = [
   { href: "/account", label: "Профиль" },
@@ -14,7 +15,7 @@ export function AccountNav() {
         <Link
           key={link.href}
           href={link.href}
-          className="rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-2 text-sm font-medium shadow-[var(--shadow-card)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          className={`${GLASS_BUTTON_CLASS} px-4 py-2 text-sm`}
         >
           {link.label}
         </Link>

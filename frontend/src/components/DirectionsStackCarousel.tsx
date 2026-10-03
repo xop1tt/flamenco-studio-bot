@@ -5,10 +5,12 @@ import { useState } from "react";
 import type { Direction } from "@/lib/directions";
 
 const CARD_WIDTH = 288;
-// Шаг смещения для 1-го и 2-го плана — специально нелинейный и пошире, чтобы
-// задние карточки заметно выглядывали по бокам и было понятно, что их можно
-// пролистать.
-const OFFSET_STEP = [0, 190, 330];
+// Шаг смещения для 1-го и 2-го плана. Должен быть больше половины ширины
+// активной карточки (144px) плюс половины уменьшенной соседней — иначе
+// полупрозрачные glass-medium карточки накладываются друг на друга и текст
+// соседней карточки просвечивает поверх активной (было на реальных данных:
+// карточки стояли почти вплотную и читались одновременно).
+const OFFSET_STEP = [0, 300, 480];
 
 // Карусель с наложением: активная карточка по центру в полный размер, соседние
 // видны по бокам — уменьшены, затемнены и слегка размыты позади неё. Листать
@@ -17,8 +19,18 @@ const OFFSET_STEP = [0, 190, 330];
 export function DirectionsStackCarousel({ directions }: { directions: Direction[] }) {
   const [active, setActive] = useState(0);
 
+  // Без направлений (каталог недоступен) секция раньше оставалась пустой —
+  // заголовок без единой карточки, будто страница сломана. Показываем то же
+  // объяснение, что и для пустого расписания (см. EmptyScheduleNotice).
   if (directions.length === 0) {
-    return null;
+    return (
+      <div className="glass-medium mx-auto flex max-w-xl flex-col items-center gap-3 rounded-[24px] p-6 text-center">
+        <p className="text-[var(--text-secondary)]">
+          Каталог направлений сейчас недоступен. Попробуйте обновить страницу
+          позже.
+        </p>
+      </div>
+    );
   }
 
   const goTo = (index: number) => {
@@ -36,7 +48,7 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             type="button"
             onClick={() => goTo(active - 1)}
             aria-label="Предыдущее направление"
-            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--on-primary)] transition hover:bg-[var(--text-primary)]/75"
+            className="glass-subtle glass-float glass-interactive absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full text-lg text-[var(--text-primary)] hover:text-[var(--primary)]"
             style={{ left: "50%", transform: `translate(calc(-50% - ${CARD_WIDTH / 2 + 24}px), -50%)` }}
           >
             ‹
@@ -45,7 +57,7 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             type="button"
             onClick={() => goTo(active + 1)}
             aria-label="Следующее направление"
-            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--on-primary)] transition hover:bg-[var(--text-primary)]/75"
+            className="glass-subtle glass-float glass-interactive absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full text-lg text-[var(--text-primary)] hover:text-[var(--primary)]"
             style={{ left: "50%", transform: `translate(calc(-50% + ${CARD_WIDTH / 2 + 24}px), -50%)` }}
           >
             ›
@@ -65,8 +77,8 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
         const step = OFFSET_STEP[abs];
         const translateX = offset === 0 ? 0 : offset > 0 ? step : -step;
         const scale = abs === 0 ? 1 : abs === 1 ? 0.85 : 0.72;
-        const opacity = abs === 0 ? 1 : abs === 1 ? 0.65 : 0.35;
-        const blur = abs === 0 ? 0 : abs === 1 ? 1.5 : 3;
+        const opacity = abs === 0 ? 1 : abs === 1 ? 0.45 : 0.22;
+        const blur = abs === 0 ? 0 : abs === 1 ? 3 : 5;
         // Держим z-index заметно ниже шапки (z-10, sticky), иначе при
         // минимальной прокрутке карточки рисуются поверх неё.
         const zIndex = 5 - abs;
@@ -77,16 +89,23 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
           <div
             key={direction.key}
             aria-hidden={!isActive}
-            className="glass-card absolute top-1/2 left-1/2 flex w-72 flex-col gap-3 rounded-2xl p-6 shadow-[var(--shadow-card-hover)] transition-all duration-500 ease-out"
+            className="glass-medium absolute top-1/2 left-1/2 flex w-72 flex-col gap-3 rounded-[28px] p-7"
             style={{
               transform: `translate(-50%, -50%) translateX(${translateX}px) scale(${scale})`,
               opacity,
               filter: blur ? `blur(${blur}px)` : undefined,
               zIndex,
+              // Карточка, становящаяся активной, слегка "пружинит" на месте
+              // (overshoot) — так смена видна отчётливее, чем ровный ease-out.
+              // Для уходящих в сторону карточек — обычное плавное замедление,
+              // overshoot на уменьшении смотрелся бы как дрожание.
+              transition: isActive
+                ? "transform 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 450ms ease-out, filter 450ms ease-out"
+                : "transform 500ms ease-out, opacity 450ms ease-out, filter 450ms ease-out",
             }}
           >
             <div>
-              <h2 className="mb-1 text-xl font-semibold">{direction.label}</h2>
+              <h2 className="font-heading mb-2 text-xl font-bold tracking-tight">{direction.label}</h2>
               <span className="inline-block rounded-full bg-[var(--primary-light)] px-3 py-0.5 text-xs font-semibold text-[var(--accent-dark)]">
                 {direction.level}
               </span>

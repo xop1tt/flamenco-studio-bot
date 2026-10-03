@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 import type { LessonPackage } from "@/lib/api";
 import { startCheckoutAction } from "@/lib/actions";
 
@@ -43,27 +44,26 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
         return (
         <div
           key={lessonPackage.key}
-          className={`relative flex flex-col gap-3 rounded-2xl glass-card p-6 shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)] ${
-            isBestValue ? "ring-2 ring-[var(--primary)]" : ""
+          className={`relative flex flex-col gap-3 rounded-[28px] glass-medium glass-specular p-7 transition hover:-translate-y-1 ${
+            isBestValue ? "outline-2 outline-[var(--primary)]" : ""
           }`}
         >
           {isBestValue ? (
-            <span className="absolute -top-3 left-5 rounded-full bg-[var(--primary)] px-3 py-1 text-xs font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)]">
+            <span className="absolute -top-3 left-6 rounded-full bg-[var(--primary)] px-3 py-1 text-xs font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)]">
               Выгодно
             </span>
           ) : (
             savings > 0 && (
-              <span className="absolute -top-3 left-5 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-semibold text-[var(--accent-dark)] shadow-[var(--shadow-card)]">
+              <span className="absolute -top-3 left-6 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-semibold text-[var(--accent-dark)] shadow-[var(--shadow-card)]">
                 Экономия {savings} ₽
               </span>
             )
           )}
-          <div className="text-lg font-semibold">{lessonPackage.title}</div>
-          <div className="text-base text-[var(--text-secondary)]">
-            {lessonPackage.lessons} {lessonsWord(lessonPackage.lessons)}
-          </div>
+          {/* Название уже содержит количество занятий ("Абонемент на 4
+              занятия") — отдельная строка с тем же числом дублировала его. */}
+          <div className="font-heading text-lg font-bold tracking-tight">{lessonPackage.title}</div>
           <div>
-            <div className="text-3xl font-bold text-[var(--primary)]">
+            <div className="font-heading text-4xl font-bold tracking-tight text-[var(--primary)]">
               {lessonPackage.price_rub} ₽
             </div>
             {lessonPackage.lessons > 1 && (
@@ -76,7 +76,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
             {isAuthenticated === undefined ? (
               <Link
                 href="/packages"
-                className="block w-full rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-2.5 text-center text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                className={`${GLASS_BUTTON_CLASS} block w-full px-4 py-2.5 text-center text-sm`}
               >
                 Подробнее →
               </Link>
@@ -104,14 +104,4 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
       })}
     </div>
   );
-}
-
-function lessonsWord(count: number): string {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return "занятие";
-  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) {
-    return "занятия";
-  }
-  return "занятий";
 }

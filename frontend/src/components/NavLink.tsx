@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV_ITEM_CLASS } from "@/lib/glass";
 
-const BASE =
-  "rounded-full border px-3 py-1.5 text-[18px] font-semibold transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-secondary)] hover:text-[var(--primary)]";
+// Блик под курсором ведёт общий GlassController — своих обработчиков нет.
 
 export function NavLink({
   href,
@@ -20,10 +20,8 @@ export function NavLink({
     <Link
       href={href}
       aria-current={isActive ? "page" : undefined}
-      className={`${BASE} ${
-        isActive
-          ? "border-[var(--border-strong)] bg-[var(--surface-secondary)] text-[var(--primary)]"
-          : "border-transparent text-[var(--text-secondary)]"
+      className={`${NAV_ITEM_CLASS} ${
+        isActive ? "text-[var(--primary)]" : "text-[var(--text-secondary)] hover:text-[var(--primary)]"
       }`}
     >
       {children}

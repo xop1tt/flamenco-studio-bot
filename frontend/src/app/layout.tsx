@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Comfortaa } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
+import { GlassController } from "@/components/GlassController";
 import "./globals.css";
 
 // Geist/Geist Mono были в стартовом шаблоне Next.js, но сайт нигде не
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="flex min-h-full flex-col">
         <div className="site-backdrop" aria-hidden="true" />
+        <GlassController />
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <SiteFooter />
