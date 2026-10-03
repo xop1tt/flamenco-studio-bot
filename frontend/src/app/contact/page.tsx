@@ -29,7 +29,7 @@ export default function ContactPage() {
           href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+          className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
         >
           Написать в Telegram
         </a>

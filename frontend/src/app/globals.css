@@ -12,15 +12,64 @@
   --primary: #A52E48;
   --primary-hover: #8C2740;
   --primary-light: #F2D5DB;
+  /* Текст/иконки на заливке --primary (кнопки, бейджи). Отдельный токен —
+     раньше для этого использовали --surface, но в тёмной теме --surface
+     становится тёмным и перестаёт годиться для текста на цветной кнопке. */
+  --on-primary: #FFF9F4;
 
   --border: #DECBC4;
   --border-strong: #C8ADA7;
 
   --accent-dark: #641F32;
 
+  --success-bg: #F0FDF4;
+  --success-text: #166534;
+  --danger-bg: #FEF2F2;
+  --danger-text: #991B1B;
+  --danger: #B91C1C;
+
   --shadow-card: 0 2px 10px rgba(43, 23, 27, 0.07), 0 1px 2px rgba(43, 23, 27, 0.05);
   --shadow-card-hover: 0 10px 28px rgba(43, 23, 27, 0.14), 0 2px 6px rgba(43, 23, 27, 0.08);
   --shadow-header: 0 2px 12px rgba(43, 23, 27, 0.06);
+
+  color-scheme: light;
+}
+
+/* Тёмная тема — визуальное продолжение светлой: та же тёплая
+   бордовая/кремовая палитра, только поверхности и текст инвертированы.
+   Устанавливается атрибутом data-theme на <html> (см. ThemeToggle и
+   no-flash скрипт в layout.tsx), а не классом, чтобы совпадать с
+   нативным color-scheme и не требовать второго механизма переключения. */
+:root[data-theme="dark"] {
+  --background: #1A1113;
+  --surface: #241619;
+  --surface-secondary: #2F1E22;
+
+  --text-primary: #F3E6E2;
+  --text-secondary: #C7A9AA;
+  --text-muted: #9C8285;
+
+  --primary: #C23A58;
+  --primary-hover: #D45670;
+  --primary-light: #3C232B;
+  --on-primary: #FFF9F4;
+
+  --border: #402C30;
+  --border-strong: #8A5F66;
+
+  --accent-dark: #F0B8C4;
+
+  --success-bg: #16281D;
+  --success-text: #86D4A0;
+  --danger-bg: #2E1618;
+  --danger-text: #F2A8AC;
+  --danger: #E2626B;
+
+  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 10px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-header: 0 2px 12px rgba(0, 0, 0, 0.3);
+
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -33,9 +82,15 @@
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-light: var(--primary-light);
+  --color-on-primary: var(--on-primary);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-accent-dark: var(--accent-dark);
+  --color-success-bg: var(--success-bg);
+  --color-success-text: var(--success-text);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-text: var(--danger-text);
+  --color-danger: var(--danger);
   --font-heading: var(--font-comfortaa);
 }
 
@@ -44,6 +99,17 @@ body {
   color: var(--text-primary);
   font-family: Arial, Helvetica, sans-serif;
   position: relative;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Плавная, но не резкая смена поверхностей при переключении темы. Кнопки и
+   ссылки уже анимируют цвет через Tailwind-класс transition — здесь
+   покрываем крупные блоки, у которых его нет. */
+.glass-card,
+.glass-card-accent,
+.glass-bar,
+.site-backdrop {
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 /* Фоновое фото сайта: фиксировано, слегка затонировано в --background, чтобы

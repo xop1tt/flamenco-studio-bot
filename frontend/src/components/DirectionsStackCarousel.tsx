@@ -36,7 +36,7 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             type="button"
             onClick={() => goTo(active - 1)}
             aria-label="Предыдущее направление"
-            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--surface)] transition hover:bg-[var(--text-primary)]/75"
+            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--on-primary)] transition hover:bg-[var(--text-primary)]/75"
             style={{ left: "50%", transform: `translate(calc(-50% - ${CARD_WIDTH / 2 + 24}px), -50%)` }}
           >
             ‹
@@ -45,7 +45,7 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             type="button"
             onClick={() => goTo(active + 1)}
             aria-label="Следующее направление"
-            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--surface)] transition hover:bg-[var(--text-primary)]/75"
+            className="absolute top-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--text-primary)]/55 text-lg text-[var(--on-primary)] transition hover:bg-[var(--text-primary)]/75"
             style={{ left: "50%", transform: `translate(calc(-50% + ${CARD_WIDTH / 2 + 24}px), -50%)` }}
           >
             ›
@@ -115,7 +115,7 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             <Link
               href={`/schedule?class_key=${direction.key}`}
               tabIndex={isActive ? undefined : -1}
-              className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+              className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
             >
               Смотреть расписание →
             </Link>

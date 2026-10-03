@@ -4,6 +4,7 @@ import { logoutAction } from "@/lib/actions";
 import { ScrollAwareHeader } from "./ScrollAwareHeader";
 import { NavLink } from "./NavLink";
 import { MobileNav } from "./MobileNav";
+import { ThemeToggle } from "./ThemeToggle";
 
 const NAV_LINKS = [
   { href: "/schedule", label: "Расписание" },
@@ -27,7 +28,7 @@ export async function SiteHeader() {
   ) : (
     <Link
       href="/login"
-      className="block rounded-full bg-[var(--primary)] px-5 py-2 text-center text-[18px] font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+      className="block rounded-full bg-[var(--primary)] px-5 py-2 text-center text-[18px] font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
     >
       Войти
     </Link>
@@ -49,17 +50,21 @@ export async function SiteHeader() {
               {link.label}
             </NavLink>
           ))}
-          <div className="ml-1">{authSection}</div>
+          <div className="ml-1 flex items-center gap-2">
+            {authSection}
+            <ThemeToggle />
+          </div>
         </nav>
 
         {/* Компактная шапка на мобильном: лого + кнопка записи + меню-иконка. */}
         <div className="flex items-center gap-2 sm:hidden">
           <Link
             href="/schedule"
-            className="rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)]"
+            className="rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)]"
           >
             Записаться
           </Link>
+          <ThemeToggle />
           <MobileNav links={NAV_LINKS}>
             <div className="mt-2 border-t border-[var(--border)] pt-2">{authSection}</div>
           </MobileNav>

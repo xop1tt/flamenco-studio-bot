@@ -48,7 +48,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
           }`}
         >
           {isBestValue ? (
-            <span className="absolute -top-3 left-5 rounded-full bg-[var(--primary)] px-3 py-1 text-xs font-semibold text-[var(--surface)] shadow-[var(--shadow-card)]">
+            <span className="absolute -top-3 left-5 rounded-full bg-[var(--primary)] px-3 py-1 text-xs font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)]">
               Выгодно
             </span>
           ) : (
@@ -85,7 +85,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
                 <input type="hidden" name="package_key" value={lessonPackage.key} />
                 <button
                   type="submit"
-                  className="w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+                  className="w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
                 >
                   Купить
                 </button>
@@ -93,7 +93,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
             ) : (
               <Link
                 href="/login"
-                className="block w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-center text-sm font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+                className="block w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-center text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
               >
                 Войти и купить
               </Link>

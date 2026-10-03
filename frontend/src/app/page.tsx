@@ -53,7 +53,7 @@ export default async function HomePage() {
         <div className="mt-2 flex flex-wrap justify-center gap-3">
           <Link
             href={heroCtaHref}
-            className="rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+            className="rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
           >
             {heroCtaLabel}
           </Link>
@@ -112,7 +112,7 @@ export default async function HomePage() {
         </p>
         <Link
           href="/contact"
-          className="mt-2 rounded-full bg-[var(--primary)] px-6 py-3 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+          className="mt-2 rounded-full bg-[var(--primary)] px-6 py-3 font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
         >
           Связаться со студией
         </Link>

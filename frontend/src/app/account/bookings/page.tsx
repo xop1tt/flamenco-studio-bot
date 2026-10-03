@@ -28,12 +28,12 @@ export default async function AccountBookingsPage({
   return (
     <div className="flex flex-col gap-8">
       {cancelled && (
-        <p className="rounded-md bg-green-50 p-3 text-sm text-green-800">
+        <p className="rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
           Запись отменена, занятие возвращено на баланс.
         </p>
       )}
       {cancelError && (
-        <p className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+        <p className="rounded-md bg-[var(--danger-bg)] p-3 text-sm text-[var(--danger-text)]">
           {cancelError}
         </p>
       )}
@@ -105,7 +105,7 @@ function BookingList({
                 <input type="hidden" name="slot_id" value={booking.slot_id} />
                 <ConfirmSubmitButton
                   confirmMessage="Отменить запись? Занятие вернётся на баланс."
-                  className="text-sm font-medium text-red-700 hover:underline"
+                  className="text-sm font-medium text-[var(--danger)] hover:underline"
                 >
                   Отменить запись
                 </ConfirmSubmitButton>

@@ -99,7 +99,7 @@ export function TelegramLoginWidget() {
       {pending && (
         <p className="text-sm text-[var(--text-secondary)]">Входим…</p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
     </div>
   );
 }

@@ -30,12 +30,12 @@ export default async function AccountSupportPage({
       <section className="rounded-2xl glass-card p-6 shadow-[var(--shadow-card)]">
         <h2 className="mb-4 text-xl font-semibold">Новое обращение</h2>
         {submitted && (
-          <p className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-800">
+          <p className="mb-4 rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
             Обращение отправлено. Администратор ответит здесь же.
           </p>
         )}
         {error && (
-          <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-800">
+          <p className="mb-4 rounded-md bg-[var(--danger-bg)] p-3 text-sm text-[var(--danger-text)]">
             {ERROR_MESSAGES[error] ?? ERROR_MESSAGES.failed}
           </p>
         )}
@@ -54,7 +54,7 @@ export default async function AccountSupportPage({
           />
           <button
             type="submit"
-            className="self-start rounded-full bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--surface)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+            className="self-start rounded-full bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
           >
             Отправить
           </button>

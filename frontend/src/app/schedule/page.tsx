@@ -44,14 +44,14 @@ export default async function SchedulePage({
       <h1 className="text-3xl font-semibold">Расписание</h1>
 
       {booked && (
-        <p className="rounded-md bg-green-50 p-3 text-sm text-green-800">
+        <p className="rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
           {already === "1"
             ? "Вы уже были записаны на это занятие."
             : "Место подтверждено! Занятие появится в «Мои занятия»."}
         </p>
       )}
       {bookError && (
-        <p className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+        <p className="rounded-md bg-[var(--danger-bg)] p-3 text-sm text-[var(--danger-text)]">
           {bookError}
         </p>
       )}
@@ -92,7 +92,7 @@ function FilterLink({
       href={href}
       className={
         active
-          ? "rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--surface)] shadow-[var(--shadow-card)]"
+          ? "rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)]"
           : "rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-2 text-sm font-medium transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
       }
     >
