@@ -2,6 +2,7 @@ import Link from "next/link";
 import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 import type { LessonPackage } from "@/lib/api";
 import { startCheckoutAction } from "@/lib/actions";
+import { formatPrice } from "@/lib/format";
 
 type Props = {
   packages: LessonPackage[];
@@ -63,7 +64,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
           ) : (
             savings > 0 && (
               <span className="absolute -top-3 left-6 rounded-full bg-[var(--primary-light)] px-3 py-1 text-xs font-semibold text-[var(--accent-dark)] shadow-[var(--shadow-card)]">
-                Экономия {savings} ₽
+                Экономия {formatPrice(savings)}
               </span>
             )
           )}
@@ -72,11 +73,11 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
           <div className="font-heading text-lg font-bold tracking-tight">{lessonPackage.title}</div>
           <div>
             <div className="font-heading text-4xl font-bold tracking-tight text-[var(--primary)]">
-              {lessonPackage.price_rub} ₽
+              {formatPrice(lessonPackage.price_rub)}
             </div>
             {lessonPackage.lessons > 1 && (
               <div className="text-sm text-[var(--text-secondary)]">
-                {pricePerLesson} ₽ за занятие
+                {formatPrice(pricePerLesson)} за занятие
               </div>
             )}
           </div>
@@ -95,7 +96,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
                   type="submit"
                   className="btn-primary w-full rounded-full px-4 py-2.5 text-sm font-medium"
                 >
-                  Купить
+                  Оплатить {formatPrice(lessonPackage.price_rub)}
                 </button>
               </form>
             ) : (
@@ -103,7 +104,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
                 href="/login"
                 className="btn-primary flex w-full rounded-full px-4 py-2.5 text-center text-sm font-medium"
               >
-                Войти и купить
+                Войти и оплатить
               </Link>
             )}
           </div>

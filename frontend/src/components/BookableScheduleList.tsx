@@ -1,46 +1,68 @@
 import Link from "next/link";
-import type { ClassSlot } from "@/lib/api";
-import { formatClassDateTime } from "@/lib/format";
+import { isBookable, type ClassSlot } from "@/lib/api";
+import { formatClassDateTime, hoursLabel, placesLabel } from "@/lib/format";
 import { bookClassAction } from "@/lib/actions";
-import { availabilityLabel, EmptyScheduleNotice } from "./ScheduleList";
+import { ConfirmSubmitButton } from "./ConfirmSubmitButton";
+import { EmptyScheduleNotice } from "./ScheduleList";
 
 type Props = {
   slots: ClassSlot[];
   isAuthenticated: boolean;
   classKey: string | null;
+  // Окно отмены из backend (GET /api/bookings/rules): запись ближе этого
+  // срока необратима и, как в боте, требует подтверждения.
+  cancellationDeadlineHours: number;
 };
 
-export function BookableScheduleList({ slots, isAuthenticated, classKey }: Props) {
-  if (slots.length === 0) {
+// Те же правила, что в разделе «Записаться» Telegram-бота: показываются
+// только занятия, на которые можно записаться (открытые, с местами).
+export function BookableScheduleList({
+  slots,
+  isAuthenticated,
+  classKey,
+  cancellationDeadlineHours,
+}: Props) {
+  const bookable = slots.filter(isBookable);
+  if (bookable.length === 0) {
     return <EmptyScheduleNotice />;
   }
 
+  const lateFrom = lateBookingThreshold(cancellationDeadlineHours);
   return (
     <ul className="flex flex-col gap-3">
-      {slots.map((slot) => (
+      {bookable.map((slot) => (
         <BookableScheduleCard
           key={slot.id}
           slot={slot}
           isAuthenticated={isAuthenticated}
           classKey={classKey}
+          irreversible={new Date(slot.starts_at).getTime() < lateFrom}
+          cancellationDeadlineHours={cancellationDeadlineHours}
         />
       ))}
     </ul>
   );
 }
 
+// Отдельная функция, а не Date.now() прямо в теле компонента: линтер
+// считает вызов текущего времени в рендере нечистым.
+function lateBookingThreshold(hours: number): number {
+  return Date.now() + hours * 60 * 60 * 1000;
+}
+
 function BookableScheduleCard({
   slot,
   isAuthenticated,
   classKey,
+  irreversible,
+  cancellationDeadlineHours,
 }: {
   slot: ClassSlot;
   isAuthenticated: boolean;
   classKey: string | null;
+  irreversible: boolean;
+  cancellationDeadlineHours: number;
 }) {
-  const bookable = slot.status === "open" && slot.remaining > 0;
-  const soldOut = !bookable;
-
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] glass-medium glass-specular p-5">
       <div className="flex flex-col gap-2">
@@ -50,37 +72,45 @@ function BookableScheduleCard({
             {formatClassDateTime(slot.starts_at)}
           </span>
         </div>
-        <div
-          className={
-            soldOut
-              ? "text-sm text-[var(--text-secondary)]"
-              : "text-sm font-medium text-[var(--primary)]"
-          }
-        >
-          {availabilityLabel(slot)}
+        <div className="text-sm font-medium text-[var(--primary)]">
+          Свободно {placesLabel(slot.remaining)}
         </div>
+        {irreversible && (
+          <div className="text-xs text-[var(--text-secondary)]">
+            До начала меньше {hoursLabel(cancellationDeadlineHours)} — отменить
+            запись будет нельзя.
+          </div>
+        )}
       </div>
 
-      {bookable &&
-        (isAuthenticated ? (
-          <form action={bookClassAction}>
-            <input type="hidden" name="slot_id" value={slot.id} />
-            {classKey && <input type="hidden" name="class_key" value={classKey} />}
+      {isAuthenticated ? (
+        <form action={bookClassAction}>
+          <input type="hidden" name="slot_id" value={slot.id} />
+          {classKey && <input type="hidden" name="class_key" value={classKey} />}
+          {irreversible ? (
+            <ConfirmSubmitButton
+              confirmMessage={`Записаться на занятие? До начала меньше ${hoursLabel(cancellationDeadlineHours)} — отменить эту запись будет нельзя, занятие спишется с баланса.`}
+              className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
+            >
+              Записаться
+            </ConfirmSubmitButton>
+          ) : (
             <button
               type="submit"
               className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
             >
               Записаться
             </button>
-          </form>
-        ) : (
-          <Link
-            href="/login"
-            className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
-          >
-            Войти и записаться
-          </Link>
-        ))}
+          )}
+        </form>
+      ) : (
+        <Link
+          href="/login"
+          className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
+        >
+          Войти и записаться
+        </Link>
+      )}
     </li>
   );
 }

@@ -1,6 +1,7 @@
 """Модуль конфигурации"""
 
 import os
+from urllib.parse import urlsplit
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -44,6 +45,21 @@ def parse_database_pool_sizes(min_size: str, max_size: str) -> tuple[int, int]:
     return minimum, maximum
 
 
+def parse_website_url(value: str, env: str) -> Optional[str]:
+    url = value.strip().rstrip("/")
+    if not url:
+        return None
+    parsed = urlsplit(url)
+    local_http = (
+        env.strip().lower() == "development"
+        and parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1"}
+    )
+    if (parsed.scheme != "https" and not local_http) or not parsed.hostname:
+        raise ValueError("WEBSITE_URL должен быть https-адресом сайта")
+    return url
+
+
 class Config:
     """Конфигурация бота"""
 
@@ -78,6 +94,13 @@ class Config:
         "YOOKASSA_RETURN_URL",
         "https://t.me/",
     ).strip()
+
+    # Публичный адрес сайта студии — бот ссылается на него в «О студии»,
+    # «Профиле» и «Абонементах». Необязателен: без него бот просто не
+    # показывает ссылку.
+    WEBSITE_URL: Optional[str] = parse_website_url(
+        os.getenv("WEBSITE_URL", ""), os.getenv("ENV", "development")
+    )
 
     # Если токен не задан - ошибка
     if not BOT_TOKEN:

@@ -59,3 +59,27 @@ export async function getPackages(): Promise<LessonPackage[]> {
 export async function getClasses(): Promise<ClassFormat[]> {
   return (await apiFetch<ClassFormat[]>("/api/classes")) ?? [];
 }
+
+// Правила записи — из backend (те же константы, по которым их проверяет
+// репозиторий). Значения по умолчанию — на случай недоступного API: это
+// только подписи, окончательную проверку всё равно делает backend.
+export type BookingRules = {
+  cancellation_deadline_hours: number;
+  rebook_cooldown_hours: number;
+};
+
+const DEFAULT_BOOKING_RULES: BookingRules = {
+  cancellation_deadline_hours: 24,
+  rebook_cooldown_hours: 12,
+};
+
+export async function getBookingRules(): Promise<BookingRules> {
+  return (
+    (await apiFetch<BookingRules>("/api/bookings/rules")) ?? DEFAULT_BOOKING_RULES
+  );
+}
+
+/** Записаться можно только на открытое занятие со свободными местами. */
+export function isBookable(slot: ClassSlot): boolean {
+  return slot.status === "open" && slot.remaining > 0;
+}

@@ -12,6 +12,7 @@
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
+from .config import Config
 from .database.repository import BOOKING_CANCELLATION_DEADLINE
 
 
@@ -74,3 +75,9 @@ def cancellation_hint(starts_at: datetime, now: Optional[datetime] = None) -> st
             format_class_time(cancellation_deadline(starts_at), now)
         )
     return "Отменить эту запись уже нельзя — до начала меньше 24 часов."
+
+
+def website_line(prefix: str = "Сайт студии") -> str:
+    """Ссылка на сайт, если WEBSITE_URL задан (иначе пустая строка)."""
+    url = Config.WEBSITE_URL
+    return "{}: {}".format(prefix, url) if url else ""

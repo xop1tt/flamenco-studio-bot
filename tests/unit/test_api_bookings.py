@@ -218,6 +218,32 @@ class ApiBookingsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
 
+    def test_my_bookings_include_cancellation_deadline(self):
+        slot = self._create_slot(capacity=2)
+        self._login(telegram_id=1001)
+        self._grant_credits(1001)
+        self.client.post("/api/bookings", json={"slot_id": slot.id})
+
+        response = self.client.get("/api/bookings/me")
+
+        self.assertEqual(response.status_code, 200)
+        booking = response.json()[0]
+        # Python 3.10: fromisoformat не понимает суффикс «Z».
+        starts_at = datetime.fromisoformat(booking["starts_at"].replace("Z", "+00:00"))
+        cancellable_until = datetime.fromisoformat(
+            booking["cancellable_until"].replace("Z", "+00:00")
+        )
+        self.assertEqual(starts_at - cancellable_until, timedelta(hours=24))
+
+    def test_booking_rules_are_public_and_match_repository_rules(self):
+        response = self.client.get("/api/bookings/rules")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"cancellation_deadline_hours": 24, "rebook_cooldown_hours": 12},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

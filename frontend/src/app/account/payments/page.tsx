@@ -3,7 +3,7 @@ import Link from "next/link";
 import { GLASS_BUTTON_CLASS } from "@/lib/glass";
 import { getMyPayments, type PaymentHistoryItem } from "@/lib/account";
 import { checkPaymentAction } from "@/lib/actions";
-import { formatClassDateTime } from "@/lib/format";
+import { formatClassDateTime, formatPrice } from "@/lib/format";
 
 export const metadata: Metadata = {
   title: "Платежи",
@@ -66,8 +66,8 @@ function PaymentList({ payments }: { payments: PaymentHistoryItem[] }) {
           <div className="flex flex-col gap-1">
             <span className="font-medium">{payment.package_title}</span>
             <span className="text-sm text-[var(--text-secondary)]">
-              {formatClassDateTime(payment.created_at)} ·{" "}
-              {Math.round(payment.amount_minor / 100)} ₽
+              Счёт №{payment.id} · {formatPrice(payment.amount_minor / 100)} ·{" "}
+              {formatClassDateTime(payment.created_at)}
             </span>
           </div>
           <div className="flex items-center gap-3">

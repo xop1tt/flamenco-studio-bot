@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { getSchedule } from "@/lib/api";
+import { getBookingRules, getSchedule, isBookable } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { getDirections } from "@/lib/directions";
 import { CONTACTS } from "@/lib/contacts";
@@ -39,7 +39,7 @@ const SCENES: SceneLink[] = [
   { id: "hero", label: "Начало" },
   { id: "directions", label: "Направления" },
   { id: "about", label: "О студии" },
-  { id: "schedule", label: "Расписание" },
+  { id: "schedule", label: "Записаться" },
   { id: "contacts", label: "Контакты" },
 ];
 
@@ -50,11 +50,15 @@ const SCENES: SceneLink[] = [
 // слой можно размывать в переходе (только не стеклянные блоки: blur
 // родителя ломает backdrop-filter стекла внутри него).
 export default async function HomePage() {
-  const [schedule, directions, currentUser] = await Promise.all([
+  const [allSlots, directions, currentUser, rules] = await Promise.all([
     getSchedule(),
     getDirections(),
     getCurrentUser(),
+    getBookingRules(),
   ]);
+  // Как в разделе «Записаться» бота: только занятия, на которые можно
+  // записаться.
+  const schedule = allSlots.filter(isBookable);
   const upcoming = schedule.slice(0, 4);
   const nextClass = schedule[0];
   // Пока расписание пустое, вести главный CTA в расписание некуда —
@@ -186,7 +190,7 @@ export default async function HomePage() {
       <Scene id="schedule" labelledBy="schedule-title">
         <div className="mx-auto w-full max-w-3xl px-4">
           <div data-layer data-depth="0.8" data-blur className="mb-6 flex flex-col items-center gap-3 text-center">
-            <span className="eyebrow">Расписание</span>
+            <span className="eyebrow">Записаться</span>
             <h2 id="schedule-title" className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
               Ближайшие занятия
             </h2>
@@ -196,12 +200,13 @@ export default async function HomePage() {
               slots={upcoming}
               isAuthenticated={currentUser !== null}
               classKey={null}
+              cancellationDeadlineHours={rules.cancellation_deadline_hours}
             />
           </div>
           {schedule.length > upcoming.length && (
             <div data-layer data-depth="1.3" className="mt-6 flex justify-center">
               <Link href="/schedule" className={`${GLASS_BUTTON_CLASS} glass-float px-6 py-3 text-sm font-semibold`}>
-                Всё расписание →
+                Все занятия →
               </Link>
             </div>
           )}

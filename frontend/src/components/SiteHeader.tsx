@@ -7,7 +7,7 @@ import { MobileNav } from "./MobileNav";
 import { ThemeToggle } from "./ThemeToggle";
 
 const NAV_LINKS = [
-  { href: "/schedule", label: "Расписание" },
+  { href: "/schedule", label: "Записаться" },
   { href: "/packages", label: "Абонементы" },
   { href: "/contact", label: "Контакты" },
 ];

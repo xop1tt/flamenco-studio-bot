@@ -5,7 +5,7 @@ const ACCOUNT_LINKS = [
   { href: "/account", label: "Профиль" },
   { href: "/account/bookings", label: "Мои занятия" },
   { href: "/account/payments", label: "Платежи" },
-  { href: "/account/support", label: "Поддержка" },
+  { href: "/account/support", label: "Помощь" },
 ];
 
 export function AccountNav() {

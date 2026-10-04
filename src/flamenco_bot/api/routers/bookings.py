@@ -25,11 +25,22 @@ from ..dependencies import (
     get_repository,
     require_telegram_linked_user,
 )
-from ..schemas import BookingRequest, BookingResponse, UserBookingResponse
+from ..schemas import (
+    BookingRequest,
+    BookingResponse,
+    BookingRulesResponse,
+    UserBookingResponse,
+)
 
 
 logger = logging.getLogger("bot.api.bookings")
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
+
+
+@router.get("/rules", response_model=BookingRulesResponse)
+async def booking_rules() -> BookingRulesResponse:
+    """Окно отмены и пауза повторной записи — публично, без авторизации."""
+    return BookingRulesResponse.current()
 
 
 @router.post("", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)

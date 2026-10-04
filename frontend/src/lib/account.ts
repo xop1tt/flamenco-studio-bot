@@ -48,6 +48,7 @@ export type UserBooking = {
   starts_at: string;
   booking_status: string;
   slot_status: string;
+  cancellable_until: string;
 };
 
 export type SupportTicket = {

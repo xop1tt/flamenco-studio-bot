@@ -19,7 +19,7 @@ from . import (
 )
 from .main_menu import ensure_profile
 from ...handlers.states import AccountForm
-from ...presentation import balance_line
+from ...presentation import balance_line, website_line
 
 
 logger = logging.getLogger("bot.handlers.account")
@@ -39,10 +39,12 @@ async def profile_text(message: Message, repository: Any) -> str:
         "Телефон: {}\n"
         "{}.\n\n"
         "Этот же аккаунт работает и на сайте студии — вход через Telegram."
+        "{}"
     ).format(
         profile.user_name,
         profile.phone or "не указан",
         balance_line(profile.lesson_credits),
+        "\n" + website_line("Личный кабинет") if website_line() else "",
     )
 
 

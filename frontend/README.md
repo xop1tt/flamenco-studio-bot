@@ -17,6 +17,9 @@ checkout отвечает 503 — весь остальной код уже го
 
 ## Запуск
 
+Проще всего — из корня репозитория одной командой `./run.sh site` (API +
+сайт) или `./run.sh` (ещё и бот), см. корневой `README.md`. Вручную:
+
 ```bash
 npm install
 cp .env.example .env.local   # укажите API_BASE_URL и NEXT_PUBLIC_TELEGRAM_BOT_USERNAME

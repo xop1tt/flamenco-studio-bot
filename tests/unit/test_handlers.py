@@ -258,6 +258,21 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
             ["slots:all", "packs:0"],
         )
 
+    async def test_bot_links_to_website_when_configured(self):
+        with patch(
+            "flamenco_bot.presentation.Config.WEBSITE_URL", "https://studio.example"
+        ):
+            await show_about(self.message, self.state)
+            self.assertIn("https://studio.example", self.message.last_answer.args[0])
+            await open_profile(self.message, self.state, self.repository)
+            self.assertIn(
+                "Личный кабинет: https://studio.example",
+                self.message.last_answer.args[0],
+            )
+        with patch("flamenco_bot.presentation.Config.WEBSITE_URL", None):
+            await show_about(self.message, self.state)
+            self.assertNotIn("https://", self.message.last_answer.args[0])
+
     async def test_phone_and_name_input_prompts(self):
         await request_phone(self.message, self.state)
         self.assertTrue(phone_request_keyboard().keyboard[0][0].request_contact)

@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from ..class_catalog import CLASS_LABELS
 from ..database.repository import (
+    BOOKING_CANCELLATION_DEADLINE,
+    BOOKING_REBOOK_COOLDOWN,
     ClassBooking,
     ClassSlot,
     LessonPaymentHistoryItem,
@@ -152,6 +154,9 @@ class UserBookingResponse(BaseModel):
     starts_at: datetime
     booking_status: str
     slot_status: str
+    # До какого момента запись можно отменить — правило окна отмены живёт
+    # в репозитории, сайт только показывает срок (как и бот).
+    cancellable_until: datetime
 
     @classmethod
     def from_record(cls, booking: UserBooking) -> "UserBookingResponse":
@@ -163,6 +168,24 @@ class UserBookingResponse(BaseModel):
             starts_at=booking.starts_at,
             booking_status=booking.booking_status,
             slot_status=booking.slot_status,
+            cancellable_until=booking.starts_at - BOOKING_CANCELLATION_DEADLINE,
+        )
+
+
+class BookingRulesResponse(BaseModel):
+    """Правила записи для отображения клиенту — из тех же констант, по которым
+    их проверяет репозиторий, чтобы сайт не хардкодил свои числа."""
+
+    cancellation_deadline_hours: int
+    rebook_cooldown_hours: int
+
+    @classmethod
+    def current(cls) -> "BookingRulesResponse":
+        return cls(
+            cancellation_deadline_hours=int(
+                BOOKING_CANCELLATION_DEADLINE.total_seconds() // 3600
+            ),
+            rebook_cooldown_hours=int(BOOKING_REBOOK_COOLDOWN.total_seconds() // 3600),
         )
 
 

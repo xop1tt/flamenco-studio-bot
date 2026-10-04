@@ -40,6 +40,7 @@ from ...presentation import (
     format_price,
     lessons_count,
     plural,
+    website_line,
 )
 
 
@@ -297,6 +298,9 @@ def packages_screen(
             "добавятся на баланс сразу после подтверждения оплаты.",
         ]
     )
+    history = website_line("История платежей — в личном кабинете на сайте")
+    if history:
+        lines.extend(["", history])
     rows = [
         [button(bill_title(bill), "bill:{}:{}".format(bill.id, slot_id))]
         for bill in bills

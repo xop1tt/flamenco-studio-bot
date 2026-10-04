@@ -12,7 +12,12 @@ from ...class_catalog import (
     CLASS_LEVELS,
 )
 from ...payments import PURCHASE_OPTIONS, PURCHASE_PACKAGES
-from ...presentation import balance_line, format_class_time, format_price
+from ...presentation import (
+    balance_line,
+    format_class_time,
+    format_price,
+    website_line,
+)
 from ...runtime.admin_access import get_admin_id
 from . import (
     ABOUT,
@@ -111,7 +116,12 @@ def about_text() -> str:
         "проходит занятие, поможем с первыми движениями. Никакой специальной "
         "подготовки не нужно.\n\n"
         "Этот же аккаунт работает и на сайте студии — вход через Telegram."
-    ).format(directions, prices)
+        "{}"
+    ).format(
+        directions,
+        prices,
+        "\n" + website_line() if website_line() else "",
+    )
 
 
 @router.message(F.text == MAIN_MENU)

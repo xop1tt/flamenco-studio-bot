@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getProfile } from "@/lib/account";
-import { formatClassDateTime } from "@/lib/format";
+import Link from "next/link";
+import { lessonsCount } from "@/lib/format";
+import { GLASS_BUTTON_CLASS, PRIMARY_BUTTON_CLASS } from "@/lib/glass";
 
 export const metadata: Metadata = {
   title: "Профиль",
@@ -24,25 +26,27 @@ export default async function AccountProfilePage() {
         <dl className="flex flex-col gap-3">
           <Row label="Имя" value={profile.user_name} />
           <Row label="Телефон" value={profile.phone ?? "не указан"} />
-          <Row label="Telegram ID" value={String(profile.telegram_id)} />
-          <Row
-            label="Дата регистрации"
-            value={formatClassDateTime(profile.registered_at)}
-          />
-          {profile.is_admin && <Row label="Статус" value="Администратор" />}
         </dl>
+        <p className="mt-4 text-sm text-[var(--text-secondary)]">
+          Имя и телефон меняются в Telegram-боте студии: «👤 Профиль».
+        </p>
       </section>
 
-      <section className="rounded-2xl glass-medium p-6">
-        <h2 className="mb-2 text-xl font-semibold">Баланс</h2>
-        <p className="text-3xl font-bold text-[var(--primary)]">
-          {profile.lesson_credits}
-        </p>
-        <p className="text-sm text-[var(--text-secondary)]">
-          {profile.lesson_credits === 1
-            ? "занятие осталось"
-            : "занятий осталось"}
-        </p>
+      <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl glass-medium p-6">
+        <div>
+          <h2 className="mb-1 text-xl font-semibold">Баланс</h2>
+          <p className="text-2xl font-bold text-[var(--primary)]">
+            {lessonsCount(profile.lesson_credits)}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/schedule" className={`${PRIMARY_BUTTON_CLASS} px-5 py-2 text-sm`}>
+            Записаться
+          </Link>
+          <Link href="/packages" className={`${GLASS_BUTTON_CLASS} px-5 py-2 text-sm`}>
+            Абонементы
+          </Link>
+        </div>
       </section>
     </div>
   );

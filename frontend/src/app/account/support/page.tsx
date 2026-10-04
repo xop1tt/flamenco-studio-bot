@@ -4,7 +4,7 @@ import { submitSupportMessageAction } from "@/lib/actions";
 import { formatClassDateTime } from "@/lib/format";
 
 export const metadata: Metadata = {
-  title: "Поддержка",
+  title: "Помощь",
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -28,10 +28,15 @@ export default async function AccountSupportPage({
   return (
     <div className="flex flex-col gap-8">
       <section className="rounded-2xl glass-medium p-6">
-        <h2 className="mb-4 text-xl font-semibold">Новое обращение</h2>
+        <h2 className="mb-1 text-xl font-semibold">Помощь</h2>
+        <p className="mb-4 text-sm text-[var(--text-secondary)]">
+          Напишите вопрос — его получат администраторы студии. Ответ придёт в
+          Telegram-бот студии и появится в списке ниже.
+        </p>
         {submitted && (
           <p className="mb-4 rounded-md bg-[var(--success-bg)] p-3 text-sm text-[var(--success-text)]">
-            Обращение отправлено. Администратор ответит здесь же.
+            Сообщение отправлено. Ответ придёт в Telegram-бот студии и
+            появится в списке ниже.
           </p>
         )}
         {error && (
@@ -49,7 +54,7 @@ export default async function AccountSupportPage({
             required
             maxLength={2000}
             rows={4}
-            placeholder="Опишите вопрос..."
+            placeholder="Ваш вопрос…"
             className="rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] p-3 text-base focus:border-[var(--primary)] focus:outline-none"
           />
           <button
