@@ -5,7 +5,8 @@
 до истечения срока — logout лишь удалял cookie у клиента, похищенный токен
 оставался действителен ещё 7 дней (см. аудит безопасности). Cookie несёт
 только непрозрачный случайный токен; проверка и отзыв — через БД
-(``repository.get_web_session_user_id`` / ``delete_web_session``).
+(``repository.get_web_session_user_id`` / ``delete_web_session``). В БД
+лежит не сам токен, а его SHA-256 (миграция 009, ``hash_session_token``).
 """
 
 import secrets

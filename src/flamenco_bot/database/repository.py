@@ -1,4 +1,5 @@
 import errno
+import hashlib
 import logging
 import ipaddress
 import socket
@@ -1234,10 +1235,10 @@ class PostgresRepository:
                 )
                 await connection.execute(
                     """
-                    INSERT INTO web_sessions (token, user_id, expires_at)
+                    INSERT INTO web_sessions (token_hash, user_id, expires_at)
                     VALUES ($1, $2, $3)
                     """,
-                    token,
+                    hash_session_token(token),
                     user_id,
                     expires_at,
                 )
@@ -1247,16 +1248,16 @@ class PostgresRepository:
             return await connection.fetchval(
                 """
                 SELECT user_id FROM web_sessions
-                WHERE token = $1 AND expires_at > NOW()
+                WHERE token_hash = $1 AND expires_at > NOW()
                 """,
-                token,
+                hash_session_token(token),
             )
 
     async def delete_web_session(self, token: str) -> None:
         async with self._pool.acquire() as connection:
             await connection.execute(
-                "DELETE FROM web_sessions WHERE token = $1",
-                token,
+                "DELETE FROM web_sessions WHERE token_hash = $1",
+                hash_session_token(token),
             )
 
     async def get_web_user_by_email(self, email: str) -> Optional[WebUserRecord]:
@@ -2106,6 +2107,11 @@ class PostgresRepository:
             raise LookupError(
                 "Профиль не найден для Telegram ID {}".format(telegram_id)
             )
+
+
+def hash_session_token(token: str) -> str:
+    """SHA-256 (hex) токена веб-сессии — в БД хранится только он."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def is_database_configured(database_url: str) -> bool:
@@ -3181,15 +3187,15 @@ class InMemoryRepository:
         expires_at: datetime,
     ) -> None:
         now = datetime.now(timezone.utc)
-        for existing_token, (existing_user_id, existing_expiry) in list(
+        for existing_hash, (existing_user_id, existing_expiry) in list(
             self._web_sessions.items()
         ):
             if existing_user_id == user_id and existing_expiry <= now:
-                del self._web_sessions[existing_token]
-        self._web_sessions[token] = (user_id, expires_at)
+                del self._web_sessions[existing_hash]
+        self._web_sessions[hash_session_token(token)] = (user_id, expires_at)
 
     async def get_web_session_user_id(self, token: str) -> Optional[int]:
-        entry = self._web_sessions.get(token)
+        entry = self._web_sessions.get(hash_session_token(token))
         if entry is None:
             return None
         user_id, expires_at = entry
@@ -3198,7 +3204,7 @@ class InMemoryRepository:
         return user_id
 
     async def delete_web_session(self, token: str) -> None:
-        self._web_sessions.pop(token, None)
+        self._web_sessions.pop(hash_session_token(token), None)
 
     async def get_web_user_by_email(self, email: str) -> Optional[WebUserRecord]:
         normalized_email = email.lower()

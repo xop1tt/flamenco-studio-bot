@@ -10,6 +10,7 @@
 (под тем telegram_id, который привязан в данный момент).
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -155,8 +156,11 @@ class AuthService:
                 )
             )
         normalized_name = display_name.strip() or "Участник студии"
+        # PBKDF2 (600k итераций) — сотни миллисекунд CPU: в отдельном потоке,
+        # чтобы не останавливать event loop всего API.
+        password_hash = await asyncio.to_thread(hash_password, password)
         user = await self.repository.create_web_user(
-            normalized_email, hash_password(password), normalized_name
+            normalized_email, password_hash, normalized_name
         )
         logger.info("Registered web user user_id=%s", user.id)
         return user
@@ -170,7 +174,9 @@ class AuthService:
         if (
             user is None
             or user.password_hash is None
-            or not verify_password(password, user.password_hash)
+            or not await asyncio.to_thread(
+                verify_password, password, user.password_hash
+            )
         ):
             logger.warning("Email authentication failed email_present=%s", bool(email))
             raise InvalidCredentialsError("Неверный email или пароль")
