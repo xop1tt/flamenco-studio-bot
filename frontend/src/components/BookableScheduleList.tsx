@@ -42,7 +42,7 @@ function BookableScheduleCard({
   const soldOut = !bookable;
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] glass-medium glass-specular p-5 transition hover:-translate-y-0.5">
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] glass-medium glass-specular p-5">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{slot.class_label}</span>
@@ -68,7 +68,7 @@ function BookableScheduleCard({
             {classKey && <input type="hidden" name="class_key" value={classKey} />}
             <button
               type="submit"
-              className="shrink-0 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+              className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
             >
               Записаться
             </button>
@@ -76,7 +76,7 @@ function BookableScheduleCard({
         ) : (
           <Link
             href="/login"
-            className="shrink-0 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+            className="btn-primary shrink-0 rounded-full px-4 py-2 text-sm font-medium"
           >
             Войти и записаться
           </Link>

@@ -30,10 +30,7 @@
 
   --shadow-card: 0 2px 10px rgba(43, 23, 27, 0.07), 0 1px 2px rgba(43, 23, 27, 0.05);
   --shadow-card-hover: 0 10px 28px rgba(43, 23, 27, 0.14), 0 2px 6px rgba(43, 23, 27, 0.08);
-  --shadow-header: 0 2px 12px rgba(43, 23, 27, 0.06);
 
-  /* Glass material (см. блок "Glass design system" ниже). Светлое стекло:
-     тёплый молочный тон поверхности, тонкая тёмная обводка, мягкая тень. */
   /* Палитра "поверх тёмной сцены" — нужна и в светлой теме: шапка
      перетекает к ней, пока за ней тёмный кадр hero (см. .site-header ниже). */
   --on-stage-tint: #2A191D;
@@ -41,27 +38,46 @@
   --on-stage-text-secondary: #C7A9AA;
   --on-stage-accent: #F0B8C4;
 
+  /* Liquid Glass (см. блок "Glass design system" ниже). Светлое стекло:
+     тёплый молочный тон, белые кромки и блики, мягкая тень. */
   --glass-tint: #FFF9F4;
-  --glass-alpha-subtle: 60%;
-  --glass-alpha-medium: 86%;
-  --glass-alpha-dense: 92%;
-  --glass-alpha-hover-boost: 12%;
-  --glass-header-alpha-min: 18%;
-  --glass-header-alpha-max: 82%;
-  --glass-blur: 14px;
-  --glass-blur-dense: 22px;
-  --glass-saturate: 1.6;
+  --glass-alpha-subtle: 44%;
+  --glass-alpha-medium: 74%;
+  --glass-alpha-dense: 88%;
+  --glass-alpha-hover-boost: 8%;
+  --glass-header-alpha-min: 30%;
+  --glass-header-alpha-max: 64%;
+  --glass-blur: 16px;
+  --glass-blur-dense: 26px;
+  --glass-saturate: 1.7;
   --glass-brightness: 1.04;
-  --glass-border: rgba(100, 31, 50, 0.12);
-  --glass-border-hover: color-mix(in srgb, var(--primary) 45%, transparent);
-  --glass-sheen: rgba(255, 255, 255, 0.5);
-  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  --glass-shadow: 0 6px 20px rgba(43, 23, 27, 0.08), 0 1px 3px rgba(43, 23, 27, 0.06);
-  --glass-shadow-hover: 0 12px 32px rgba(43, 23, 27, 0.14), 0 2px 6px rgba(43, 23, 27, 0.08);
-  --glass-shadow-color: rgba(43, 23, 27, 0.12);
+  --glass-border: rgba(100, 31, 50, 0.1);
+  --glass-border-hover: rgba(100, 31, 50, 0.2);
+  --glass-sheen: rgba(255, 255, 255, 0.55);
+  --glass-caustic: rgba(255, 255, 255, 0.4);
+  --glass-edge-top: rgba(255, 255, 255, 0.85);
+  --glass-edge-bottom: rgba(255, 255, 255, 0.3);
+  --glass-rim-hi: rgba(255, 255, 255, 0.95);
+  --glass-rim-lo: rgba(255, 255, 255, 0.45);
+  --glass-inner-glow: rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 12px 32px -14px rgba(43, 23, 27, 0.26), 0 2px 6px rgba(43, 23, 27, 0.06);
+  --glass-shadow-hover: 0 14px 36px -14px rgba(43, 23, 27, 0.3), 0 2px 6px rgba(43, 23, 27, 0.08);
+  --glass-shadow-color: rgba(43, 23, 27, 0.2);
   --glass-specular: rgba(255, 255, 255, 0.45);
 
+  /* Горошек (лунарес) на фоне средних сцен главной. */
+  --lunar: rgba(165, 46, 72, 0.055);
+
+  /* Высота зоны шапки: отступ сверху + плавающая панель. */
+  --header-space: 66px;
+
   color-scheme: light;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --header-space: 74px;
+  }
 }
 
 /* Тёмная тема — визуальное продолжение светлой: та же тёплая
@@ -99,27 +115,33 @@
 
   --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-card-hover: 0 10px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-header: 0 2px 12px rgba(0, 0, 0, 0.3);
 
-  /* Тёмное стекло — не инверсия светлого: более глубокий тон, светлая
-     обводка, внутренний блик сверху и мягкое внутреннее свечение. */
+  /* Тёмное стекло — не инверсия светлого: глубже тон, кромки и блики —
+     тёплый свет, а не белый, иначе стекло выглядит серым пластиком. */
   --glass-tint: #2A191D;
-  --glass-alpha-subtle: 50%;
-  --glass-alpha-medium: 80%;
-  --glass-alpha-dense: 90%;
-  --glass-alpha-hover-boost: 12%;
-  --glass-header-alpha-min: 22%;
-  --glass-header-alpha-max: 80%;
-  --glass-saturate: 1.3;
-  --glass-brightness: 0.92;
-  --glass-border: rgba(255, 228, 222, 0.1);
-  --glass-border-hover: color-mix(in srgb, var(--primary-hover) 55%, transparent);
-  --glass-sheen: rgba(255, 236, 230, 0.06);
-  --glass-highlight: inset 0 1px 0 rgba(255, 236, 230, 0.12), inset 0 0 18px rgba(255, 236, 230, 0.03);
-  --glass-shadow: 0 8px 26px rgba(0, 0, 0, 0.38), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --glass-shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
-  --glass-shadow-color: rgba(0, 0, 0, 0.45);
+  --glass-alpha-subtle: 32%;
+  --glass-alpha-medium: 62%;
+  --glass-alpha-dense: 86%;
+  --glass-alpha-hover-boost: 8%;
+  --glass-header-alpha-min: 26%;
+  --glass-header-alpha-max: 58%;
+  --glass-saturate: 1.5;
+  --glass-brightness: 0.94;
+  --glass-border: rgba(255, 228, 222, 0.09);
+  --glass-border-hover: rgba(255, 228, 222, 0.2);
+  --glass-sheen: rgba(255, 236, 230, 0.08);
+  --glass-caustic: rgba(255, 150, 170, 0.09);
+  --glass-edge-top: rgba(255, 236, 230, 0.18);
+  --glass-edge-bottom: rgba(255, 236, 230, 0.05);
+  --glass-rim-hi: rgba(255, 236, 230, 0.42);
+  --glass-rim-lo: rgba(255, 236, 230, 0.12);
+  --glass-inner-glow: rgba(255, 236, 230, 0.1);
+  --glass-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --glass-shadow-hover: 0 18px 44px -16px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --glass-shadow-color: rgba(0, 0, 0, 0.5);
   --glass-specular: rgba(255, 236, 230, 0.14);
+
+  --lunar: rgba(240, 184, 196, 0.03);
 
   color-scheme: dark;
 }
@@ -163,9 +185,8 @@ body {
 }
 
 /* Фон сайта вне главной: фиксированный, тёплый радиальный градиент на
-   основе токенов темы — никакой фотографии (раньше здесь было размытое
-   фото юбки, убрано вместе с остальными фото-ассетами платьев/танцовщиц).
-   Стеклянные плитки показывают его сквозь полупрозрачность. */
+   основе токенов темы — никакой фотографии. Стеклянные плитки показывают
+   его сквозь полупрозрачность. */
 .site-backdrop {
   position: fixed;
   inset: 0;
@@ -184,11 +205,10 @@ body {
   background: color-mix(in srgb, var(--surface-secondary) 92%, transparent);
 }
 
-/* На главной футер идёт сразу после тёмной CTA-сцены (fixed .stage, #070304
-   позади контента) — без перехода это был бы резкий пиксель-в-пиксель
-   обрез тёмного в светлое. Scoped через :has(), чтобы на остальных
-   страницах (где перед футером никакой тёмной сцены нет) футер не менялся. */
-body:has([data-scene="cta"]) .footer-surface::before {
+/* На главной футер идёт сразу после тёмной финальной сцены — без перехода
+   это был бы резкий пиксель-в-пиксель обрез тёмного в светлое. Scoped
+   через :has(), чтобы на остальных страницах футер не менялся. */
+body:has([data-scene="contacts"]) .footer-surface::before {
   content: "";
   position: absolute;
   top: -1px;
@@ -200,35 +220,43 @@ body:has([data-scene="cta"]) .footer-surface::before {
 }
 
 /* ==========================================================================
-   Glass design system — один материал, три плотности.
+   Glass design system — Liquid Glass: один материал, три плотности.
 
    Иерархия: Scene → Glass UI → Content. Стекло — для интерфейса поверх
-   сцены (шапка, кнопки, карточки, поповеры), не для текста, фото, секций и
-   декора.
+   сцены (шапка, кнопки, карточки, поповеры, плавающие контролы), не для
+   текста, фото, секций и декора.
 
      .glass-subtle  — навигация, мелкие и вторичные кнопки, floating controls
      .glass-medium  — карточки и информационные панели
      .glass-dense   — поповеры/диалоги: читаемость поверх чего угодно
 
+   Материал собран из слоёв, а не из одного rgba + blur:
+     1. полупрозрачный тон (background-color, плотность по классу);
+     2. верхний блик (sheen) и мягкая "каустика" снизу — свет, прошедший
+        сквозь толщу стекла (background-image);
+     3. тонкая обводка + внутренние кромки сверху/снизу (border, inset
+        box-shadow) — толщина листа;
+     4. световая кромка ::after — ярче в верхнем-левом и нижнем-правом
+        углах, как свет на ребре физического стекла;
+     5. мягкая тень снизу — лист приподнят над сценой;
+     6. backdrop-filter (размытие + насыщенность) — ТОЛЬКО у шапки,
+        .glass-dense и .glass-float: десятки размытых слоёв поверх живого
+        фона подвешивали вкладку в Safari, поэтому размываются только
+        единицы действительно парящих элементов.
+
    Модификаторы:
-     .glass-interactive — hover/active/focus-visible/disabled (кнопки,
-                          навигация — без блика под курсором, убран по
-                          запросу)
-     .glass-specular    — блик под курсором (карточки, где сама карточка
-                          не кликабельна, но живёт под мышью)
+     .glass-interactive — hover/active/focus-visible/disabled. Hover — НЕ
+                          свечение вокруг: кромка ярче, внутренний блик,
+                          чуть больше насыщенность подложки и scale 1.015
+                          (scale не меняет layout — соседи не двигаются)
+     .glass-specular    — блик под курсором (некликабельные карточки)
      .glass-ghost       — прозрачна, пока не hover/focus/aria-current
-     .glass-float       — включает backdrop-filter для subtle-элемента,
-                          который реально парит над сценой
+     .glass-float       — включает backdrop-filter
 
-   backdrop-filter — ТОЛЬКО у шапки, .glass-dense и .glass-float (единицы
-   элементов). Карточки без размытия: десятки размытых слоёв поверх
-   fixed-фона уже подвешивали вкладку в Safari — стекло у них даёт
-   полупрозрачность + блик + обводка + тень.
-
-   Положение блика (--mx/--my) у .glass-specular пишет один общий
-   pointer-трекер (GlassController), плотность шапки
-   (--glass-header-density) — тот же GSAP ScrollTrigger, что и у
-   scroll-сцен главной.
+   Важно для сцены главной: backdrop-filter видит фон только до ближайшего
+   предка с opacity < 1 / filter / mask ("backdrop root"). Поэтому
+   хореография двигает контейнеры сцен только transform-ом, а прозрачность
+   задаёт отдельным слоям (см. choreography.ts).
 
    В @layer components — чтобы Tailwind-утилиты (absolute, rounded-*, p-*)
    на тех же элементах всегда побеждали, а не наоборот.
@@ -239,16 +267,43 @@ body:has([data-scene="cta"]) .footer-surface::before {
   .glass-dense {
     --glass-hover: 0;
     --glass-alpha: calc(var(--glass-alpha-base) + var(--glass-hover) * var(--glass-alpha-hover-boost));
+    position: relative;
+    isolation: isolate;
     background-color: color-mix(in srgb, var(--glass-tint) var(--glass-alpha), transparent);
-    background-image: linear-gradient(180deg, var(--glass-sheen), transparent 45%);
+    background-image:
+      linear-gradient(180deg, var(--glass-sheen), transparent 46%),
+      radial-gradient(130% 70% at 50% 125%, var(--glass-caustic), transparent 62%);
     border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-highlight), var(--glass-shadow);
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge-top),
+      inset 0 -1px 0 var(--glass-edge-bottom),
+      inset 0 0 calc(var(--glass-hover) * 18px) var(--glass-inner-glow),
+      var(--glass-shadow);
     transition:
       background-color 0.3s ease,
-      border-color 0.2s ease,
-      box-shadow 0.25s ease,
+      border-color 0.25s ease,
+      box-shadow 0.3s ease,
       color 0.2s ease,
-      scale 0.15s ease;
+      scale 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* Световая кромка: кольцо в 1px по краю (маска вырезает середину). */
+  .glass-subtle::after,
+  .glass-medium::after,
+  .glass-dense::after,
+  .btn-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(155deg, var(--glass-rim-hi), transparent 32%, transparent 64%, var(--glass-rim-lo));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: calc(0.55 + var(--glass-hover) * 0.45);
+    pointer-events: none;
+    transition: opacity 0.3s ease;
   }
 
   .glass-subtle {
@@ -265,22 +320,20 @@ body:has([data-scene="cta"]) .footer-surface::before {
     backdrop-filter: blur(var(--glass-blur-dense)) saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
   }
 
+  /* Насыщенность подложки чуть растёт на hover — "преломление" меняется,
+     а не загорается подсветка. */
   .glass-float {
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(calc(var(--glass-saturate) + var(--glass-hover) * 0.3)) brightness(var(--glass-brightness));
+    backdrop-filter: blur(var(--glass-blur)) saturate(calc(var(--glass-saturate) + var(--glass-hover) * 0.3)) brightness(var(--glass-brightness));
   }
 
-  /* Specular highlight: мягкое пятно света, которое следует за курсором —
-     только на некликабельных карточках (.glass-specular). На кнопках/
-     навигации (.glass-interactive) убран по запросу, остались только
-     обычные состояния ниже (hover/active/focus/disabled).
-     z-index:-1 + isolation — над фоном элемента, но под его текстом. */
+  /* Specular highlight: мягкое пятно света под курсором — только на
+     некликабельных карточках (.glass-specular). z-index:-1 + isolation —
+     над фоном элемента, но под его текстом. */
   .glass-specular {
     --mx: 50%;
     --my: 0%;
     --glass-spec-size: 260px;
-    position: relative;
-    isolation: isolate;
   }
 
   .glass-specular::before {
@@ -300,8 +353,8 @@ body:has([data-scene="cta"]) .footer-surface::before {
   }
 
   .glass-specular:hover {
+    --glass-hover: 1;
     border-color: var(--glass-border-hover);
-    box-shadow: var(--glass-highlight), var(--glass-shadow-hover);
   }
 
   .glass-interactive {
@@ -311,11 +364,11 @@ body:has([data-scene="cta"]) .footer-surface::before {
   .glass-interactive:hover {
     --glass-hover: 1;
     border-color: var(--glass-border-hover);
-    box-shadow: var(--glass-highlight), var(--glass-shadow-hover);
+    scale: 1.015;
   }
 
   .glass-interactive:active {
-    scale: 0.97;
+    scale: 0.985;
   }
 
   .glass-interactive:focus-visible {
@@ -339,34 +392,152 @@ body:has([data-scene="cta"]) .footer-surface::before {
     border-color: transparent;
     box-shadow: none;
   }
+
+  .glass-ghost:not(:hover):not(:focus-visible):not([aria-current="page"])::after {
+    opacity: 0;
+  }
+
+  /* Основное действие — тонированное бордовым жидкое стекло: тот же
+     набор слоёв (тон, блик, каустика, кромка, тень), но цвет — --primary.
+     Hover так же без свечения: ярче кромка и внутренний блик. */
+  .btn-primary {
+    --glass-hover: 0;
+    --glass-rim-hi: rgba(255, 255, 255, 0.75);
+    --glass-rim-lo: rgba(255, 255, 255, 0.3);
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--on-primary);
+    background-color: color-mix(in srgb, var(--primary) 88%, transparent);
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 52%),
+      radial-gradient(120% 90% at 50% 130%, rgba(255, 196, 206, 0.34), transparent 60%);
+    border: 1px solid color-mix(in srgb, var(--primary) 55%, rgba(255, 255, 255, 0.28));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, calc(0.3 + var(--glass-hover) * 0.22)),
+      inset 0 -1px 0 rgba(40, 0, 10, 0.25),
+      inset 0 0 calc(var(--glass-hover) * 16px) rgba(255, 225, 232, 0.34),
+      0 10px 24px -12px rgba(50, 4, 16, 0.6),
+      0 1px 2px rgba(40, 0, 10, 0.2);
+    cursor: pointer;
+    transition:
+      background-color 0.3s ease,
+      border-color 0.25s ease,
+      box-shadow 0.3s ease,
+      scale 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .btn-primary:hover {
+    --glass-hover: 1;
+    border-color: color-mix(in srgb, var(--primary) 35%, rgba(255, 255, 255, 0.55));
+    scale: 1.015;
+  }
+
+  .btn-primary:active {
+    scale: 0.985;
+  }
+
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+
+  .btn-primary:disabled,
+  .btn-primary[aria-disabled="true"] {
+    --glass-hover: 0;
+    opacity: 0.55;
+    cursor: not-allowed;
+    scale: 1;
+  }
 }
 
 /* Блик под курсором — только для устройств с настоящим hover. На touch его
-   нет: статичный верхний блик (--glass-highlight) остаётся всегда. */
+   нет: статичный верхний блик остаётся всегда. */
 @media (hover: hover) and (pointer: fine) {
   .glass-specular:hover::before {
     opacity: 1;
   }
 }
 
-/* Шапка — тот же материал (тон, блик, обводка), но без скругления и с
-   плотностью, непрерывно зависящей от прокрутки: у самого верха почти
-   прозрачна (сцена "дышит" сквозь неё), к ~240px — плотная и читаемая.
-   --glass-header-density (0..1) пишет GlassController; без JS — 1. */
+/* ==========================================================================
+   Шапка — плавающая стеклянная панель, а не плашка от края до края.
+
+   .site-header      — прозрачная sticky-зона высотой --header-space, клики
+                       сквозь неё проходят (pointer-events: none);
+   .site-header-bar  — сама панель: тот же материал, что и стекло выше, но
+                       с самым глубоким размытием на странице и плотностью,
+                       непрерывно зависящей от прокрутки: у самого верха
+                       сцена "дышит" сквозь неё, к ~240px — плотнее и
+                       читаемее. --glass-header-density (0..1) пишет
+                       GlassController; без JS — 1.
+   ========================================================================== */
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--header-space);
+  padding: 8px 8px 0;
+  pointer-events: none;
+}
+
+@media (min-width: 640px) {
+  .site-header {
+    padding: 12px 16px 0;
+  }
+}
+
+/* На главной шапка лежит поверх сцены и не сдвигает её вниз: сцена
+   начинается от самого верха окна, за стеклом шапки — живой фон. */
+body:has(.scenes) .site-header {
+  margin-bottom: calc(var(--header-space) * -1);
+}
+
+.site-header-bar {
   --d: var(--glass-header-density, 1);
+  --glass-hover: 0;
+  pointer-events: auto;
+  /* Цвет текста — из адаптивных токенов шапки (ниже, --sd): без этого
+     элементы без явного цвета (иконка меню) наследовали бы тёмный цвет
+     body и пропадали на стекле поверх тёмной сцены. */
+  color: var(--text-primary);
+  position: relative;
+  isolation: isolate;
+  height: 100%;
+  border-radius: 22px;
   background-color: color-mix(
     in srgb,
     var(--glass-tint) calc(var(--glass-header-alpha-min) + (var(--glass-header-alpha-max) - var(--glass-header-alpha-min)) * var(--d)),
     transparent
   );
-  background-image: linear-gradient(180deg, var(--glass-sheen), transparent 70%);
-  border-bottom: 1px solid var(--glass-border);
+  background-image:
+    linear-gradient(180deg, var(--glass-sheen), transparent 64%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05), transparent 16%, transparent 84%, rgba(255, 255, 255, 0.05)),
+    radial-gradient(80% 160% at 50% 150%, var(--glass-caustic), transparent 60%);
+  border: 1px solid var(--glass-border);
   box-shadow:
-    var(--glass-highlight),
-    0 6px 24px color-mix(in srgb, var(--glass-shadow-color) calc(var(--d) * 100%), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
+    inset 0 1px 0 var(--glass-edge-top),
+    inset 0 -1px 0 var(--glass-edge-bottom),
+    0 18px 40px -22px color-mix(in srgb, var(--glass-shadow-color) calc(45% + var(--d) * 55%), transparent),
+    0 2px 8px -3px color-mix(in srgb, var(--glass-shadow-color) calc(var(--d) * 70%), transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8) brightness(var(--glass-brightness));
+  backdrop-filter: blur(22px) saturate(1.8) brightness(var(--glass-brightness));
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.site-header-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(160deg, var(--glass-rim-hi), transparent 26%, transparent 70%, var(--glass-rim-lo));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 /* Вложенное стекло не размываем повторно — фон под ним уже размыт. */
@@ -394,17 +565,25 @@ body:has([data-scene="cta"]) .footer-surface::before {
   .glass-subtle,
   .glass-medium,
   .glass-dense,
+  .btn-primary,
+  .glass-subtle::after,
+  .glass-medium::after,
+  .glass-dense::after,
+  .btn-primary::after,
   .glass-specular::before {
     transition: none;
   }
 
-  .glass-interactive:active {
+  .glass-interactive:hover,
+  .glass-interactive:active,
+  .btn-primary:hover,
+  .btn-primary:active {
     scale: 1;
   }
 }
 
 /* Небольшая прописная подпись над заголовком секции — editorial-акцент,
-   разряженные буквы + цвет акцента, как в референсе. */
+   разряженные буквы + цвет акцента. */
 .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -424,48 +603,12 @@ body:has([data-scene="cta"]) .footer-surface::before {
   background: var(--primary);
 }
 
-/* Лёгкая непрерывная анимация иконок-плиток в "Почему мы?" — покачивание +
-   небольшой поворот, у каждой свой animationDelay (см. index в page.tsx),
-   чтобы плитки не двигались синхронно, как единый блок. */
-@keyframes icon-float {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-6px) rotate(-3deg);
-  }
-}
-
-.icon-float {
-  animation: icon-float 4.5s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .icon-float {
-    animation: none;
-  }
-}
-
-/* === Шапка: лого и кнопка "Войти" сворачиваются при скролле вниз и
-   разворачиваются при скролле вверх — непрерывная функция накопленной
-   дельты скролла (--header-collapse, 0..1, пишет GlassController), а не
-   бинарный флаг направления + CSS transition на max-width/margin-inline.
-
-   Раньше это было рассинхронизировано: max-width лого/кнопки шёл через
-   transition (анимируется нормально), а nav одновременно получал
-   `margin-inline: auto` — но CSS-transition НЕ умеет интерполировать
-   между числом и `auto` (это неанимируемая пара значений, браузер просто
-   скачком подставляет конечное значение), поэтому при пересечении порога
-   остальные кнопки визуально телепортировались в новое положение вместо
-   плавного смещения. Сейчас всё — один calc() от непрерывного числа: без
-   transition, без auto, обновляется на каждый тик скролла синхронно с ним.
-
-   nav/ThemeToggle отдельно никуда не двигаем: у nav остаётся обычный
-   margin-left:auto (Tailwind-класс ml-auto в SiteHeader), поэтому по мере
-   того как лого и кнопка "Войти" сжимаются, nav естественно и плавно
-   следует за освобождающимся пространством — тот же механизм flexbox, что
-   и в состоянии покоя, без отдельной анимации/измерений. */
+/* === Шапка: лого и кнопка "Войти" сворачиваются при прокрутке — непрерывная
+   функция позиции скролла (--header-collapse, 0..1, пишет GlassController),
+   один calc() без transition и без auto: обновляется на каждый тик скролла
+   синхронно с ним, без телепортов соседних элементов. nav остаётся
+   прижатым вправо обычным ml-auto и плавно следует за освобождающимся
+   местом. Сама панель (.site-header-bar) при этом размер не меняет. */
 
 .header-row {
   position: relative;
@@ -480,162 +623,498 @@ body:has([data-scene="cta"]) .footer-surface::before {
   opacity: calc(1 - var(--collapse));
 }
 
-.header-logo {
-  --w: 240px;
+/* .header-cta обрезает содержимое по своему боксу — padding (компенсирован
+   отрицательным margin, layout не меняется) оставляет место под тень и
+   scale кнопки "Войти" на hover. Отрицательный margin справа растёт вместе
+   со сворачиванием и съедает flex-gap (12px) рядом со свёрнутым элементом —
+   иначе в узкой панели оставалась бы лишняя щель. */
+.header-cta {
+  --w: 200px;
+  padding: 10px;
+  margin: -10px;
+  margin-right: calc(-10px - var(--collapse) * 12px);
 }
 
-.header-cta {
-  --w: 180px;
+.header-logo {
+  --w: 240px;
+  margin-right: calc(var(--collapse) * -12px);
 }
 
 /* Полностью свёрнутое состояние: убираем из клавиатурной табуляции и
-   кликов невидимый (max-width:0) элемент. Порог, а не анимация — сама
-   визуальная часть уже целиком отрисована через --header-collapse выше. */
+   кликов невидимый (max-width:0) элемент. */
 :root[data-header-collapsed="true"] .header-logo,
 :root[data-header-collapsed="true"] .header-cta {
   visibility: hidden;
 }
 
-
 /* ==========================================================================
-   Сцена главной (HomeStage + HomeStory).
+   Главная — последовательность полноэкранных сцен (HomeStory + sceneEngine).
 
-   Слои: base → spot → tone → виньетка. Подвижных объектов на сцене нет —
-   только фон (софит/тон/виньетка), двигает его один таймлайн
-   (state = f(scrollProgress)), здесь — только исходный кадр (progress 0)
-   и геометрия.
+   Статика (без JS / prefers-reduced-motion): сцены — обычные блоки в
+   потоке, фон-сцена (.stage) лежит позади hero, финальная сцена получает
+   свой тёмный фон. Это и есть "кадр progress 0" + читаемый лонгрид.
 
-   По умолчанию (без JS / prefers-reduced-motion) сцена — absolute-блок
-   высотой в экран: статичный hero, который уезжает со страницей. Живой
-   режим ([data-story-live], ставит HomeStory) — fixed-сцена позади всего
-   контента; hero выше на величину "разгона" перехода в About, но не
-   превращается в отдельную многоэкранную анимационную шахту — см. ниже
-   [data-story-live] [data-scene="hero"] и комментарий у HomeStory про
-   normal scroll space между секциями. ========================================================================== */
+   Живой режим (.scenes[data-live], ставит sceneEngine): .scenes-viewport —
+   sticky-камера высотой в экран, сцены — абсолютные слои внутри неё,
+   высоту трека задаёт движок. Кликабельна только активная сцена.
+   ========================================================================== */
+.scenes {
+  position: relative;
+}
 
-/* Без JS/с prefers-reduced-motion .stage — position:absolute внутри
-   <main>, который в потоке документа начинается ПОСЛЕ шапки (header не
-   перекрывается с main, а стоит над ним). У шапки backdrop-filter — он
-   сэмплит то, что РЕАЛЬНО отрисовано позади неё в композиции; если сцена
-   начинается только от верхней границы main, позади шапки на самом деле
-   оказывается .site-backdrop (светлый в светлой теме), а не тёмная сцена,
-   даже когда --stage-dark=1 и сам тон шапки правильно тёмный — в сумме
-   получалась ощутимо более светлая шапка, чем должна быть. --header-h —
-   грубая, но заведомо не меньшая оценка реальной высоты шапки (py-3/
-   sm:py-4 + контент, см. SiteHeader) — не точный замер, а достаточный
-   запас, чтобы верх сцены гарантированно уходил выше верхнего края шапки.
-   В live-режиме не нужно: там .stage сразу position:fixed, оно и так
-   перекрывает весь viewport, включая область за шапкой. */
-.stage {
-  --header-h: 84px;
+.scenes-viewport {
+  position: relative;
+}
+
+.scenes-layer {
+  position: relative;
+  z-index: 2;
+}
+
+.scene {
+  position: relative;
+  padding: 72px 0;
+}
+
+.scene--dark {
+  color: var(--text-primary);
+}
+
+.scene[data-scene="hero"] {
+  display: flex;
+  align-items: center;
+  min-height: 100svh;
+  padding: calc(var(--header-space) + 24px) 0 112px;
+}
+
+.scene-scroll,
+.scene-inner {
+  width: 100%;
+}
+
+.scenes:not([data-live]) [data-scene="contacts"] {
+  padding: 96px 0;
+  background: radial-gradient(120% 90% at 70% 30%, #2a0d13 0%, #120607 55%, #070304 100%);
+}
+
+.scenes[data-live] .scenes-viewport {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100lvh;
+  overflow: hidden;
+  overflow: clip;
+  isolation: isolate;
+  background: #070304;
+}
+
+.scenes[data-live] .scenes-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Внизу — запас под мобильную панель браузера: камера высотой 100lvh, а
+   видимая часть может быть 100svh. */
+.scenes[data-live] .scene {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: calc(var(--header-space) + 12px) 0 max(20px, calc(100lvh - 100svh + 20px));
+}
+
+.scenes[data-live] .scene[data-scene="hero"] {
+  padding-bottom: max(72px, calc(100lvh - 100svh + 72px));
+}
+
+.scenes[data-live] .scene:not([data-active]) {
+  pointer-events: none;
+}
+
+.scenes[data-live] .scene-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* margin-block: auto — "безопасное" центрирование: пока контент помещается,
+   он по центру; выше экрана — прижат к верху (движок докручивает остаток
+   в удержании сцены). */
+.scenes[data-live] .scene-inner {
+  margin-block: auto;
+}
+
+/* Подсказка "Листайте" — исчезает с первым движением скролла. */
+.scroll-hint {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(var(--header-h) * -1);
-  height: calc(100dvh + var(--header-h));
+  bottom: max(24px, calc(100lvh - 100svh + 24px));
+  width: max-content;
+  margin-inline: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* На узком и портретном экране реквизит стоит под текстом hero — там
+   подсказка ложилась бы на веер. */
+.scenes:not([data-live]) .scroll-hint {
+  display: none;
+}
+
+@media (max-width: 767px), (max-aspect-ratio: 10 / 11) {
+  .scroll-hint {
+    display: none;
+  }
+}
+
+/* Текст поверх тёмной сцены: тени для читаемости. */
+.stage-copy {
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- Фон сцены ---------- */
+.stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100svh;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
   background: #070304;
 }
 
-[data-story-live] .stage {
-  position: fixed;
+/* Статика: тёмный кадр hero мягко растворяется в фоне страницы, а не
+   обрывается ровной линией. */
+.scenes:not([data-live]) .stage {
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent);
+}
+
+.scenes[data-live] .stage {
   inset: 0;
   height: auto;
-}
-
-.home-content {
-  position: relative;
-  z-index: 1;
-}
-
-[data-scene="hero"] {
-  height: 100dvh;
-}
-
-/* 160dvh, не 200dvh: 100dvh экрана + 60dvh "разгона" для перехода в About
-   (сдвиг фона) — ровно столько, сколько нужно самому насыщенному переходу,
-   а не round-number запас. Остальные секции не получают подобной
-   надбавки вовсе, см. page.tsx. */
-[data-story-live] [data-scene="hero"] {
-  height: 160dvh;
 }
 
 .stage > * {
   position: absolute;
 }
 
-/* Preflight ставит img { max-width: 100% } — слоям сцены нужны размеры
-   больше экрана (запас под zoom/pan). */
-.stage img {
-  max-width: none;
-}
-
+/* Запас по краям — под "наезд камеры" (scale) без открытых краёв. */
 .stage-base {
-  inset: 0;
+  inset: -8%;
   background: radial-gradient(120% 90% at 70% 30%, #2a0d13 0%, #120607 55%, #070304 100%);
 }
 
-.stage-spot {
-  --spot-x: 72%;
-  --spot-y: 30%;
-  --spot-r: 48%;
-  --spot-color: rgba(200, 30, 50, 0.5);
-  inset: 0;
-  mix-blend-mode: screen;
-  background: radial-gradient(var(--spot-r) var(--spot-r) at var(--spot-x) var(--spot-y), var(--spot-color), transparent 70%);
+/* Пол сцены: тёмный низ и отражение софита. */
+.stage-floor {
+  left: -10%;
+  right: -10%;
+  bottom: -8%;
+  height: 50%;
+  background:
+    radial-gradient(55% 60% at 68% 100%, rgba(160, 24, 46, 0.24), transparent 70%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent 80%);
 }
 
-/* Тон средних сцен — это уже тема сайта (светлая/тёмная), а не сцена:
-   фон "превращается" из театра в пространство студии. Никакой отдельной
-   фоновой фотографии здесь нет — атмосфера целиком из двух градиентов и
-   scroll-driven hue-rotate (--tone-hue, пишет HomeStory), чтобы фон
-   оставался частью композиции, а не статичной подложкой под движущимися
-   объектами. */
+/* Софит — пятно света за веером. Двигается transform-ом (композитор),
+   а не перерисовкой градиента. */
+.stage-spot {
+  width: 110vmax;
+  height: 110vmax;
+  left: calc(72% - 55vmax);
+  top: calc(30% - 55vmax);
+  background: radial-gradient(closest-side, rgba(200, 30, 50, 0.42), rgba(200, 30, 50, 0.13) 48%, transparent 100%);
+}
+
+/* Луч театрального прожектора сверху. */
+.stage-beam {
+  top: -14%;
+  left: calc(68% - 45vmax);
+  width: 90vmax;
+  height: 130%;
+  transform-origin: 50% 0;
+  background: conic-gradient(
+    from 166deg at 50% 0%,
+    transparent 0deg,
+    rgba(255, 214, 200, 0.045) 9deg,
+    rgba(255, 222, 208, 0.09) 14deg,
+    rgba(255, 214, 200, 0.045) 19deg,
+    transparent 28deg
+  );
+  -webkit-mask-image: linear-gradient(to bottom, #000 25%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 25%, transparent 92%);
+}
+
+/* Тон средних сцен — уже тема сайта (светлая/тёмная): фон "превращается"
+   из театра в пространство студии. Блики и горошек внутри двигаются с
+   параллаксом медленнее контента — глубина. */
 .stage-tone {
-  --glow-x: 50%;
-  --glow-y: 25%;
   inset: 0;
   opacity: 0;
+  overflow: hidden;
   background: var(--background);
 }
 
-.stage-tone-glow {
-  --tone-hue: 0deg;
+.stage-tone > * {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(60% 50% at var(--glow-x) var(--glow-y), color-mix(in srgb, var(--primary) 20%, transparent), transparent 70%),
-    radial-gradient(85% 65% at calc(100% - var(--glow-x)) calc(100% - var(--glow-y)), color-mix(in srgb, var(--accent-dark) 12%, transparent), transparent 75%);
-  filter: hue-rotate(var(--tone-hue));
-  will-change: filter;
+}
+
+.stage-glow {
+  width: 120vmax;
+  height: 120vmax;
+  border-radius: 50%;
+}
+
+.stage-glow--wine {
+  left: calc(14% - 60vmax);
+  top: calc(66% - 60vmax);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 24%, transparent), transparent);
+}
+
+.stage-glow--rose {
+  left: calc(90% - 60vmax);
+  top: calc(26% - 60vmax);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent-dark) 16%, transparent), transparent);
+}
+
+.stage-lunares {
+  top: -10%;
+  bottom: -10%;
+  left: -10%;
+  right: -50%;
+  background-image:
+    radial-gradient(circle, var(--lunar) 0 9px, transparent 10px),
+    radial-gradient(circle, var(--lunar) 0 9px, transparent 10px);
+  background-size: 76px 76px;
+  background-position: 0 0, 38px 38px;
+  -webkit-mask-image: radial-gradient(60% 70% at 72% 42%, #000, transparent 78%);
+  mask-image: radial-gradient(60% 70% at 72% 42%, #000, transparent 78%);
 }
 
 /* Виньетка сильна на тёмной сцене и почти исчезает в тоне средних сцен. */
 .stage-vignette {
   inset: 0;
-  z-index: 9;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.6) 100%);
-  opacity: calc(0.25 + 0.75 * var(--stage-dark, 1));
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(26, 4, 10, 0.6) 100%);
 }
 
-/* Текст поверх тёмной сцены: тени для читаемости на фото. */
-.stage-copy {
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+/* ---------- Реквизит ---------- */
+.stage-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
-/* Адаптивное стекло шапки в светлой теме: пока за ней тёмная сцена
-   (--stage-dark → 1, пишет HomeStory), материал и текст непрерывно
-   перетекают к тёмному варианту, иначе светлый текст на светлом стекле
-   поверх тёмного кадра был бы нечитаем. В тёмной теме сцена и так тёмная. */
-:root:not([data-theme="dark"]) .site-header {
+.stage-fan-swing,
+.stage-castanets-spin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+/* Веер: шарнир SVG — в начале координат якоря (см. fanGeometry.ts:
+   бокс 2060×1110, шарнир в (1030, 1040)). Поворот/масштаб якоря поэтому
+   идут вокруг шарнира, как у веера в руке. Статика = кадр hero: размер —
+   через ширину, в живом режиме ширина фиксирована (1000px), а размер
+   задаёт scale из хореографии. */
+.stage-fan {
+  --fan-w: calc(min(36svh, 23vw) * 2.06);
+  z-index: 1;
+  opacity: 0.88;
+  transform: translate(74vw, 66svh) rotate(-10deg);
+}
+
+.scenes[data-live] .stage-fan {
+  --fan-w: 1000px;
+  transform: none;
+}
+
+.stage-fan-art {
+  position: absolute;
+  width: var(--fan-w);
+  max-width: none;
+  height: auto;
+  aspect-ratio: 2060 / 1110;
+  left: calc(var(--fan-w) * -0.5);
+  top: calc(var(--fan-w) * -1040 / 2060);
+}
+
+.stage-castanets {
+  --cast-w: 230px;
+  z-index: 5;
+  transform: translate(87vw, 87svh) rotate(16deg);
+}
+
+.scenes[data-live] .stage-castanets {
+  transform: none;
+}
+
+.stage-castanets-art {
+  position: absolute;
+  width: var(--cast-w);
+  max-width: none;
+  height: auto;
+  aspect-ratio: 360 / 300;
+  left: calc(var(--cast-w) * -0.5);
+  top: calc(var(--cast-w) * -150 / 360);
+  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45));
+}
+
+@media (min-width: 768px) and (max-aspect-ratio: 10 / 11) {
+  .stage-fan {
+    --fan-w: calc(min(30vw, 24svh) * 2.06);
+    transform: translate(68vw, 90svh) rotate(-10deg);
+  }
+
+  .stage-castanets {
+    --cast-w: 184px;
+    transform: translate(24vw, 92svh) rotate(-10deg);
+  }
+
+  .scenes[data-live] .stage-castanets {
+    --cast-w: 230px;
+  }
+}
+
+@media (max-width: 767px) {
+  .stage-fan {
+    --fan-w: calc(44vw * 2.06);
+    transform: translate(74vw, 95svh) rotate(-12deg);
+  }
+
+  .stage-castanets {
+    --cast-w: 140px;
+    transform: translate(24vw, 92svh) rotate(-10deg);
+  }
+
+  .scenes[data-live] .stage-castanets {
+    --cast-w: 230px;
+  }
+}
+
+/* ---------- Навигация по сценам (десктоп) ---------- */
+.scene-nav {
+  display: none;
+}
+
+@media (min-width: 1200px) and (hover: hover) {
+  .scenes[data-live] .scene-nav {
+    position: absolute;
+    right: 22px;
+    top: 0;
+    bottom: 0;
+    z-index: 6;
+    height: max-content;
+    margin-block: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    border-radius: 999px;
+  }
+}
+
+.scene-nav-dot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.scene-nav-dot:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.scene-nav-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.25s ease, background-color 0.25s ease;
+}
+
+.scene-nav-dot:hover .scene-nav-mark {
+  opacity: 0.9;
+}
+
+.scene-nav-dot[aria-current] .scene-nav-mark {
+  background: var(--primary);
+  opacity: 1;
+  transform: scaleY(2.6);
+}
+
+.scene-nav-label {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  margin-top: -14px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--glass-tint) 86%, transparent);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-edge-top), var(--glass-shadow);
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 0.2s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.scene-nav-dot:hover .scene-nav-label,
+.scene-nav-dot:focus-visible .scene-nav-label {
+  opacity: 1;
+  transform: none;
+}
+
+/* Адаптивное стекло шапки (и навигации по сценам) в светлой теме: пока за
+   ними тёмная сцена (--stage-dark → 1, пишет sceneEngine), материал и
+   текст непрерывно перетекают к тёмному варианту — иначе светлый текст на
+   светлом стекле поверх тёмного кадра был бы нечитаем. В тёмной теме сцена
+   и так тёмная. */
+:root:not([data-theme="dark"]) .site-header,
+:root:not([data-theme="dark"]) .scene-nav {
   /* Кривая круче, чем у самой сцены: средние тона (серый текст на сером
      стекле) нечитаемы, поэтому шапка проходит их быстро. */
   --sd: calc(clamp(0, var(--stage-dark, 0) * 3 - 1, 1) * 100%);
   --glass-tint: color-mix(in srgb, var(--on-stage-tint) var(--sd), #FFF9F4);
-  --glass-border: color-mix(in srgb, rgba(255, 228, 222, 0.1) var(--sd), rgba(100, 31, 50, 0.12));
-  --glass-sheen: color-mix(in srgb, rgba(255, 236, 230, 0.06) var(--sd), rgba(255, 255, 255, 0.5));
+  --glass-border: color-mix(in srgb, rgba(255, 228, 222, 0.09) var(--sd), rgba(100, 31, 50, 0.1));
+  --glass-sheen: color-mix(in srgb, rgba(255, 236, 230, 0.08) var(--sd), rgba(255, 255, 255, 0.55));
+  --glass-caustic: color-mix(in srgb, rgba(255, 150, 170, 0.09) var(--sd), rgba(255, 255, 255, 0.4));
+  --glass-edge-top: color-mix(in srgb, rgba(255, 236, 230, 0.18) var(--sd), rgba(255, 255, 255, 0.85));
+  --glass-edge-bottom: color-mix(in srgb, rgba(255, 236, 230, 0.05) var(--sd), rgba(255, 255, 255, 0.3));
+  --glass-rim-hi: color-mix(in srgb, rgba(255, 236, 230, 0.42) var(--sd), rgba(255, 255, 255, 0.95));
+  --glass-rim-lo: color-mix(in srgb, rgba(255, 236, 230, 0.12) var(--sd), rgba(255, 255, 255, 0.45));
+  --glass-brightness: calc(1.04 - 0.1 * clamp(0, var(--stage-dark, 0) * 3 - 1, 1));
   --text-primary: color-mix(in srgb, var(--on-stage-text) var(--sd), #2B171B);
   --text-secondary: color-mix(in srgb, var(--on-stage-text-secondary) var(--sd), #6F5557);
   --accent-dark: color-mix(in srgb, var(--on-stage-accent) var(--sd), #641F32);

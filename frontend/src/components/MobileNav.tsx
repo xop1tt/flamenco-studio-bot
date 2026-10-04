@@ -44,13 +44,13 @@ export function MobileNav({
   }, [open]);
 
   return (
-    <div ref={rootRef} className="relative sm:hidden">
+    <div ref={rootRef} className="relative md:hidden">
       <button
         type="button"
         aria-label={open ? "Закрыть меню" : "Открыть меню"}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="glass-subtle glass-interactive flex h-10 w-10 items-center justify-center rounded-full text-lg"
+        className="glass-subtle glass-interactive flex h-10 w-10 items-center justify-center rounded-full text-lg text-[var(--text-primary)]"
       >
         {open ? "✕" : "☰"}
       </button>

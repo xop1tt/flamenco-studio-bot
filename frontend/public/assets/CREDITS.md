@@ -5,6 +5,15 @@ license and the changes made to it. CC BY 2.0 and CC BY-SA 4.0 both require
 attribution, so the site footer links to this file's content on `/credits`.
 Keep that in sync when adding or replacing assets.
 
+## Drawn for this project
+
+- Fan (`src/components/home/StageArt.tsx`, `FanArt`) — vector, drawn for this
+  project; no third-party source. It replaces the removed photograph below:
+  in the hero → directions transition the fan grows to cover the whole
+  screen (~4× its hero size), where a raster image turns blurry.
+- Castanets (`src/components/home/StageArt.tsx`, `CastanetsArt`) — vector,
+  drawn for this project (restored from the earlier homepage scene).
+
 ## Removed
 
 - `public/Flamenco_GettyImages-173193034.jpg.webp` — removed: the file name

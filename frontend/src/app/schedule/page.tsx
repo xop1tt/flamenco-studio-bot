@@ -96,7 +96,7 @@ function FilterLink({
       href={href}
       className={
         active
-          ? "rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)]"
+          ? "btn-primary rounded-full px-4 py-2 text-sm font-medium"
           : `${GLASS_BUTTON_CLASS} px-4 py-2 text-sm`
       }
     >

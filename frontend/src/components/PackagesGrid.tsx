@@ -21,7 +21,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
         </p>
         <Link
           href="/contact"
-          className="rounded-full bg-[var(--primary)] px-5 py-2 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+          className="btn-primary rounded-full px-5 py-2 text-sm font-medium"
         >
           Написать, чтобы уточнить цены
         </Link>
@@ -52,7 +52,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
         return (
         <div
           key={lessonPackage.key}
-          className={`relative flex flex-col gap-3 rounded-[28px] glass-medium glass-specular p-7 transition hover:-translate-y-1 ${
+          className={`relative flex flex-col gap-3 rounded-[28px] glass-medium glass-specular p-7 ${
             isBestValue ? "outline-2 outline-[var(--primary)]" : ""
           }`}
         >
@@ -93,7 +93,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
                 <input type="hidden" name="package_key" value={lessonPackage.key} />
                 <button
                   type="submit"
-                  className="w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+                  className="btn-primary w-full rounded-full px-4 py-2.5 text-sm font-medium"
                 >
                   Купить
                 </button>
@@ -101,7 +101,7 @@ export function PackagesGrid({ packages, isAuthenticated }: Props) {
             ) : (
               <Link
                 href="/login"
-                className="block w-full rounded-full bg-[var(--primary)] px-4 py-2.5 text-center text-sm font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+                className="btn-primary flex w-full rounded-full px-4 py-2.5 text-center text-sm font-medium"
               >
                 Войти и купить
               </Link>

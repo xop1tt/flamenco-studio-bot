@@ -54,7 +54,7 @@ export default async function AccountSupportPage({
           />
           <button
             type="submit"
-            className="self-start rounded-full bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+            className="btn-primary self-start rounded-full px-6 py-2.5 font-medium"
           >
             Отправить
           </button>
