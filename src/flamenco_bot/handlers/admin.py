@@ -1,4 +1,5 @@
 import logging
+from functools import lru_cache
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -48,7 +49,19 @@ from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
 
 
 logger = logging.getLogger("bot.handlers.admin")
-actions_logger = create_admin_actions_logger()
+
+
+@lru_cache(maxsize=1)
+def actions_logger() -> logging.Logger:
+    """Журнал действий администраторов — создаётся при первом действии.
+
+    Не при импорте модуля: открытие файла в /var/log/flamenco при импорте
+    роняло бы любой процесс без этого каталога (например, API в контейнере
+    с read-only корнем), стоит ему косвенно импортировать этот модуль.
+    """
+    return create_admin_actions_logger()
+
+
 router = Router(name="admin_commands")
 
 
@@ -64,7 +77,7 @@ async def _deny_non_admin(message: Message, repository: Any) -> bool:
         "Rejected admin action telegram_id=%s",
         message.from_user.id if message.from_user else None,
     )
-    actions_logger.warning(
+    actions_logger().warning(
         "action=denied actor_id=%s",
         message.from_user.id if message.from_user else None,
     )
@@ -158,7 +171,7 @@ async def add_class_slot(message: Message, repository: Any) -> None:
         ),
         reply_markup=admin_menu_keyboard(),
     )
-    actions_logger.info(
+    actions_logger().info(
         "action=create_class_slot admin_id=%s slot_id=%s class_key=%s capacity=%s",
         admin_id,
         slot.id,
@@ -187,7 +200,7 @@ async def change_class_slot_capacity(message: Message, repository: Any) -> None:
         await message.answer("Слот с таким ID не найден.")
         return
     await message.answer("Вместимость слота №{} обновлена.".format(slot_id))
-    actions_logger.info(
+    actions_logger().info(
         "action=change_class_slot_capacity admin_id=%s slot_id=%s capacity=%s",
         admin_id,
         slot_id,
@@ -210,7 +223,7 @@ async def close_class_slot(message: Message, repository: Any) -> None:
         await message.answer("Открытый слот с таким ID не найден.")
         return
     await message.answer("Слот №{} закрыт для новых записей.".format(slot_id))
-    actions_logger.info(
+    actions_logger().info(
         "action=close_class_slot admin_id=%s slot_id=%s",
         admin_id,
         slot_id,
@@ -368,7 +381,7 @@ async def confirm_bot_restart(
         "Перезапуск бота выполняется.",
         reply_markup=main_menu_keyboard(is_admin=True),
     )
-    actions_logger.warning(
+    actions_logger().warning(
         "action=restart_bot admin_id=%s",
         await _admin_id(message, repository),
     )
@@ -587,7 +600,7 @@ async def search_participants(
             "Участники не найдены.",
             reply_markup=admin_menu_keyboard(),
         )
-        actions_logger.info(
+        actions_logger().info(
             "action=search admin_id=%s query_length=%s results=0",
             await _admin_id(message, repository),
             len(query),
@@ -604,7 +617,7 @@ async def search_participants(
             )
         )
     await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
-    actions_logger.info(
+    actions_logger().info(
         "action=search admin_id=%s query_length=%s results=%s",
         await _admin_id(message, repository),
         len(query),
@@ -675,7 +688,7 @@ async def save_participant_name(
             "Участник с таким Telegram ID не найден.",
             reply_markup=admin_menu_keyboard(),
         )
-        actions_logger.warning(
+        actions_logger().warning(
             "action=edit_name admin_id=%s target_id=%s result=not_found",
             await _admin_id(message, repository),
             telegram_id,
@@ -685,7 +698,7 @@ async def save_participant_name(
     await repository.update_user_name(telegram_id, user_name)
     await state.clear()
     await message.answer("Имя участника обновлено.", reply_markup=admin_menu_keyboard())
-    actions_logger.info(
+    actions_logger().info(
         "action=edit_name admin_id=%s target_id=%s",
         await _admin_id(message, repository),
         telegram_id,
@@ -757,7 +770,7 @@ async def save_participant_phone(
             "Участник с таким Telegram ID не найден.",
             reply_markup=admin_menu_keyboard(),
         )
-        actions_logger.warning(
+        actions_logger().warning(
             "action=edit_phone admin_id=%s target_id=%s result=not_found",
             await _admin_id(message, repository),
             telegram_id,
@@ -770,7 +783,7 @@ async def save_participant_phone(
         "Телефон участника обновлён.",
         reply_markup=admin_menu_keyboard(),
     )
-    actions_logger.info(
+    actions_logger().info(
         "action=edit_phone admin_id=%s target_id=%s",
         await _admin_id(message, repository),
         telegram_id,
@@ -825,7 +838,7 @@ async def complete_request(message: Message, repository: Any) -> None:
         admin_id,
         completed,
     )
-    actions_logger.info(
+    actions_logger().info(
         "action=complete_request admin_id=%s request_id=%s success=%s",
         admin_id,
         parts[1],
@@ -866,7 +879,7 @@ async def _process_lesson_refund(
             "Возврат подтверждён. Списание {} неиспользованных занятий "
             "зафиксировано.".format(result.lessons)
         )
-        actions_logger.warning(
+        actions_logger().warning(
             "action=refund payment_id=%s admin_id=%s refund_id=%s",
             payment_id,
             admin_id,

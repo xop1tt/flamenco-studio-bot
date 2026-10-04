@@ -292,6 +292,8 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 | `BOT_TOKEN` | ✅ | Секретный токен Telegram-бота |
 | `BOT_LOG_DIR` | Нет | Каталог файловых логов; по умолчанию `logs/` проекта |
 | `ENV` | Нет | `development` (по умолчанию) или `production` |
+| `STUDIO_TIMEZONE` | Нет | Часовой пояс студии (IANA, по умолчанию `Europe/Moscow`): в нём бот показывает время занятий, сроки отмены и уведомления. Сайт должен использовать то же значение |
+| `BOT_HEARTBEAT_FILE` | Нет | Файл heartbeat для Docker healthcheck бота (в `compose.yaml` — `/tmp/flamenco-bot-heartbeat`); локально не нужен |
 | `ADMINS` | Нет | Список Telegram ID через запятую для системных уведомлений; **не выдаёт административные права** |
 | `DATABASE_URL` | Для production | Строка подключения PostgreSQL |
 | `DATABASE_SSL_MODE` | Нет | `verify-full` по умолчанию; `disable` допустим только для локальной разработки |

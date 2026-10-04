@@ -63,3 +63,5 @@ __pycache__/
 # Local convenience run scripts (dev only, not for production)
 /run-bot.sh
 /run-website.sh
+# Артефакты сборки пакета (pip install . / setuptools)
+/build/

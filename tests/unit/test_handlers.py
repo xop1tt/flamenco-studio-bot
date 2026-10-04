@@ -435,7 +435,7 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_can_search_and_edit_participants(self):
         self.repository.profile = replace(self.repository.profile, is_admin=True)
         self.repository.get_profile.return_value = self.repository.profile
-        with patch("flamenco_bot.handlers.admin.actions_logger") as audit_logger:
+        with patch("flamenco_bot.handlers.admin.actions_logger") as audit_factory:
             await start_participant_search(self.message, self.state, self.repository)
             self.assertEqual(
                 self.state.current_state, AdminForm.waiting_for_search.state
@@ -463,7 +463,7 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
                 1001,
                 "+79991234567",
             )
-            self.assertEqual(audit_logger.info.call_count, 3)
+            self.assertEqual(audit_factory.return_value.info.call_count, 3)
 
     async def test_non_admin_cannot_search_or_edit_participants(self):
         await start_participant_search(self.message, self.state, self.repository)
