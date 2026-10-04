@@ -11,14 +11,21 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Protocol, Sequence
+from typing import Any, Awaitable, Callable, Optional, Protocol, Sequence
 
-from ..services.payments import PaymentCheckStatus, PaymentService
+from ..services.payments import PaymentCheckResult, PaymentCheckStatus, PaymentService
 
 
 class PendingPaymentRecord(Protocol):
     id: int
     telegram_id: int
+
+
+# Вызывается, когда сверка сама зачислила занятия (статус CONFIRMED —
+# зачисление происходит ровно один раз, поэтому и уведомление одно).
+# Пользователь, оплативший и не вернувшийся в бота, иначе не узнал бы,
+# что занятия уже на балансе.
+ConfirmedCallback = Callable[[int, PaymentCheckResult], Awaitable[None]]
 
 
 class PaymentReconciliationRepository(Protocol):
@@ -36,6 +43,7 @@ async def reconcile_pending_payments(
     stale_after_seconds: float = 600.0,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    on_confirmed: Optional[ConfirmedCallback] = None,
 ) -> None:
     if interval_seconds <= 0 or stale_after_seconds <= 0:
         raise ValueError("Интервалы сверки платежей должны быть положительными")
@@ -50,13 +58,14 @@ async def reconcile_pending_payments(
             continue
 
         for record in pending:
-            await _reconcile_one(payment_service, record, logger)
+            await _reconcile_one(payment_service, record, logger, on_confirmed)
 
 
 async def _reconcile_one(
     payment_service: PaymentService,
     record: PendingPaymentRecord,
     logger: logging.Logger,
+    on_confirmed: Optional[ConfirmedCallback] = None,
 ) -> None:
     try:
         result = await payment_service.check_payment(record.id, record.telegram_id)
@@ -74,12 +83,23 @@ async def _reconcile_one(
         record.telegram_id,
         result.status.value,
     )
+    if result.status is PaymentCheckStatus.CONFIRMED and on_confirmed is not None:
+        # Занятия уже зачислены и сохранены; сбой уведомления (например,
+        # пользователь заблокировал бота) не должен влиять на сверку.
+        try:
+            await on_confirmed(record.telegram_id, result)
+        except Exception:
+            logger.exception(
+                "Payment confirmation notification failed payment_id=%s",
+                record.id,
+            )
 
 
 def start_reconciliation_task(
     payment_service: PaymentService,
     repository: Any,
     logger: logging.Logger,
+    on_confirmed: Optional[ConfirmedCallback] = None,
 ) -> "asyncio.Task[None] | None":
     """Запускает фоновую сверку, только если оплата вообще настроена.
 
@@ -90,5 +110,7 @@ def start_reconciliation_task(
     if not payment_service.checkout_available:
         return None
     return asyncio.create_task(
-        reconcile_pending_payments(payment_service, repository, logger)
+        reconcile_pending_payments(
+            payment_service, repository, logger, on_confirmed=on_confirmed
+        )
     )

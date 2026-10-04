@@ -8,7 +8,9 @@ class AccountForm(StatesGroup):
 
 
 class LessonForm(StatesGroup):
-    waiting_for_booking_time = State()
+    # Прежнее текстовое подтверждение покупки. Новая версия в это состояние
+    # не переводит (покупка — только кнопкой «Оплатить»); состояние оставлено,
+    # чтобы защитный обработчик сбросил его у старой сессии, не создавая платёж.
     waiting_for_purchase_confirmation = State()
 
 

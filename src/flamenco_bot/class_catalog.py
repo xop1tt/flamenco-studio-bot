@@ -1,8 +1,3 @@
-from typing import Sequence
-
-from .database.repository import ClassSlot
-
-
 CLASS_LABELS = {
     "beginner": "Фламенко для начинающих",
     "intermediate": "Продолжающая группа",
@@ -11,21 +6,35 @@ CLASS_LABELS = {
 
 CLASS_KEYS_BY_LABEL = {label: key for key, label in CLASS_LABELS.items()}
 
+# Короткие названия направлений — для кнопок, где полное не помещается.
+CLASS_SHORT_LABELS = {
+    "beginner": "Начинающие",
+    "intermediate": "Продолжающие",
+    "individual": "Индивидуально",
+}
 
-def format_class_schedule(slots: Sequence[ClassSlot]) -> str:
-    available = [slot for slot in slots if slot.status == "open" and slot.remaining]
-    if not available:
-        return (
-            "Сейчас нет свободных слотов. Вы можете обратиться в поддержку "
-            "или проверить расписание позже."
-        )
-    lines = ["Свободные занятия:"]
-    lines.extend(
-        "• {} — {} (свободно {})".format(
-            CLASS_LABELS[slot.class_key],
-            slot.starts_at.strftime("%d.%m.%Y %H:%M %Z"),
-            slot.remaining,
-        )
-        for slot in available
-    )
-    return "\n".join(lines)
+# Описание и уровень направления — для «О студии» в боте и карточек
+# направлений на сайте (отдаются через /api/classes). Один источник: раньше
+# текст жил только во фронтенде, но теперь его показывает и бот.
+CLASS_DESCRIPTIONS = {
+    "beginner": (
+        "Группа для тех, кто никогда не танцевал фламенко или делает первые "
+        "шаги. Базовая техника, ритм, работа с телом — без предварительной "
+        "подготовки."
+    ),
+    "intermediate": (
+        "Для тех, кто уже освоил основы и хочет двигаться дальше: усложнённые "
+        "связки, работа с партнёром по классу, более быстрый темп."
+    ),
+    "individual": (
+        "Персональный разбор техники и подготовка к выступлению в удобное "
+        "время, в своём темпе."
+    ),
+}
+
+# Уровень следует из самого направления (beginner/intermediate/individual).
+CLASS_LEVELS = {
+    "beginner": "Для начинающих, без подготовки",
+    "intermediate": "Для продолжающих",
+    "individual": "Индивидуально, любой уровень",
+}

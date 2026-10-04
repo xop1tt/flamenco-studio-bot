@@ -29,6 +29,8 @@ export type LessonPackage = {
 export type ClassFormat = {
   key: string;
   label: string;
+  description: string;
+  level: string;
 };
 
 async function apiFetch<T>(path: string): Promise<T | null> {

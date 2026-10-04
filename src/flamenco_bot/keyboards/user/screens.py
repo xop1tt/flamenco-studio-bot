@@ -1,0 +1,353 @@
+"""Inline-экраны разделов «Записаться», «Мои занятия», «Абонементы».
+
+Экран — один текст + inline-клавиатура. При переходе внутри раздела бот
+редактирует то же сообщение (не засыпает чат новыми), при входе из главного
+меню — присылает новое.
+
+callback_data (≤ 64 байт). Выбранное занятие (slot_id) передаётся по
+цепочке «нет баланса → абонемент → оплата → проверка оплаты» прямо в
+callback_data: так оно не теряется при сбросе FSM, переходе по меню или
+перезапуске бота. 0 — занятие не выбрано.
+
+  slots:<filter>                       ближайшие занятия (all или ключ направления)
+  book:<class_key>:<slot_id>           записаться (список, после оплаты, старые)
+  bookok:<class_key>:<slot_id>         подтверждённая запись (меньше 24 ч до начала)
+  my                                   «Мои занятия»
+  cancel_booking:<slot_id>             запрос отмены → экран подтверждения
+  cancel_ok:<slot_id>                  подтверждённая отмена
+  packs:<slot_id>                      список абонементов
+  pack:<package_key>:<slot_id>         абонемент и кнопка «Оплатить N ₽»
+  pay:<package_key>:<price>:<slot_id>  создать платёж (цена сверяется с каталогом)
+  bill:<payment_id>:<slot_id>          неоплаченный счёт: ссылка и проверка
+  lesson_payment_check:<payment_id>[:<slot_id>]  проверить оплату
+"""
+
+import logging
+from datetime import datetime, timezone
+from typing import Any, Optional, Sequence
+
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+
+from ...class_catalog import CLASS_LABELS, CLASS_SHORT_LABELS
+from ...database.repository import ClassSlot, LessonPaymentHistoryItem, UserBooking
+from ...payments import LessonPackage, PURCHASE_PACKAGES
+from ...presentation import (
+    PLACE_FORMS,
+    balance_line,
+    can_cancel,
+    format_class_time,
+    format_price,
+    lessons_count,
+    plural,
+)
+
+
+logger = logging.getLogger("bot.handlers.screens")
+
+MAX_SLOTS_ON_SCREEN = 10
+SLOT_FILTERS = ("all", *CLASS_LABELS)
+BACK = "⬅️ Назад"
+BOOK_BUTTON = "🗓 Записаться"
+
+
+def button(text: str, data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=data)
+
+
+def markup(*rows: Sequence[InlineKeyboardButton]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[list(row) for row in rows if row])
+
+
+async def show(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup],
+) -> None:
+    """Показывает экран в сообщении с нажатой кнопкой, иначе — новым."""
+    message = callback.message
+    edit = getattr(message, "edit_text", None)
+    if edit is not None:
+        try:
+            await edit(text, reply_markup=reply_markup)
+            return
+        except TelegramBadRequest as error:
+            if "message is not modified" in str(error):
+                return
+            logger.info("Screen edit failed, sending new message: %s", error)
+    bot = callback.bot
+    if bot is None:
+        raise RuntimeError("Telegram bot is unavailable for callback handling")
+    await bot.send_message(callback.from_user.id, text, reply_markup=reply_markup)
+
+
+def parse_int(value: str) -> Optional[int]:
+    return int(value) if value.isdigit() else None
+
+
+# ---------- Занятия ----------
+
+
+def is_bookable(slot: ClassSlot) -> bool:
+    return slot.status == "open" and slot.remaining > 0
+
+
+def slot_button_text(slot: ClassSlot) -> str:
+    return "{} · {} · {} {}".format(
+        format_class_time(slot.starts_at),
+        CLASS_SHORT_LABELS[slot.class_key],
+        slot.remaining,
+        plural(slot.remaining, PLACE_FORMS),
+    )
+
+
+async def find_slot(repository: Any, slot_id: int) -> Optional[ClassSlot]:
+    """Предстоящее занятие по id (в том числе закрытое или заполненное)."""
+    for slot in await repository.list_class_slots(limit=100):
+        if slot.id == slot_id:
+            return slot
+    return None
+
+
+async def slots_screen(
+    repository: Any,
+    telegram_id: int,
+    filter_key: str = "all",
+    notice: str = "",
+) -> tuple[str, InlineKeyboardMarkup]:
+    if filter_key == "all":
+        slots = [
+            slot
+            for slot in await repository.list_class_slots(limit=50)
+            if is_bookable(slot)
+        ]
+    else:
+        slots = list(await repository.list_available_class_slots(filter_key))
+    slots = slots[:MAX_SLOTS_ON_SCREEN]
+    credits = await repository.get_lesson_credits(telegram_id)
+
+    title = "Ближайшие занятия"
+    if filter_key != "all":
+        title += " — {}".format(CLASS_LABELS[filter_key])
+    lines = [notice] if notice else []
+    lines.append(title)
+    if slots:
+        lines.append(
+            "Выберите занятие, чтобы записаться. {}.".format(balance_line(credits))
+        )
+        if credits == 0:
+            lines.append("Если баланса не хватит, бот предложит абонемент.")
+    else:
+        lines.append(
+            "Сейчас свободных занятий{} нет. Загляните позже или напишите нам "
+            "в «💬 Помощь».".format(
+                " по этому направлению" if filter_key != "all" else ""
+            )
+        )
+
+    def filter_button(key: str) -> InlineKeyboardButton:
+        label = "Все направления" if key == "all" else CLASS_SHORT_LABELS[key]
+        prefix = "✓ " if key == filter_key else ""
+        return button(prefix + label, "slots:{}".format(key))
+
+    rows = [
+        [filter_button("all"), filter_button("beginner")],
+        [filter_button("intermediate"), filter_button("individual")],
+    ]
+    rows.extend(
+        [button(slot_button_text(slot), "book:{}:{}".format(slot.class_key, slot.id))]
+        for slot in slots
+    )
+    return "\n".join(lines), markup(*rows)
+
+
+# ---------- Мои занятия ----------
+
+
+def upcoming_bookings(
+    bookings: Sequence[UserBooking],
+    now: Optional[datetime] = None,
+) -> list[UserBooking]:
+    current = now or datetime.now(timezone.utc)
+    return sorted(
+        (
+            booking
+            for booking in bookings
+            if booking.booking_status == "confirmed" and booking.starts_at > current
+        ),
+        key=lambda booking: booking.starts_at,
+    )
+
+
+async def my_classes_screen(
+    repository: Any,
+    telegram_id: int,
+    notice: str = "",
+) -> tuple[str, InlineKeyboardMarkup]:
+    upcoming = upcoming_bookings(
+        await repository.list_bookings_for_telegram_id(telegram_id)
+    )
+    credits = await repository.get_lesson_credits(telegram_id)
+    lines = [notice, ""] if notice else []
+    lines.extend(["Мои занятия", balance_line(credits) + "."])
+    if not upcoming:
+        lines.extend(["", "Предстоящих занятий пока нет."])
+        return "\n".join(lines), markup(
+            [button(BOOK_BUTTON, "slots:all")],
+            [button("💳 Абонементы", "packs:0")],
+        )
+
+    lines.append("")
+    for booking in upcoming:
+        line = "• {} — {}".format(
+            format_class_time(booking.starts_at), CLASS_LABELS[booking.class_key]
+        )
+        if not can_cancel(booking.starts_at):
+            line += " (отмена уже недоступна)"
+        lines.append(line)
+    lines.extend(
+        [
+            "",
+            "Отменить запись можно не позднее чем за 24 часа до начала — "
+            "занятие вернётся на баланс.",
+        ]
+    )
+    rows = [
+        [
+            button(
+                "Отменить: {} · {}".format(
+                    format_class_time(booking.starts_at),
+                    CLASS_SHORT_LABELS[booking.class_key],
+                ),
+                "cancel_booking:{}".format(booking.slot_id),
+            )
+        ]
+        for booking in upcoming
+        if can_cancel(booking.starts_at)
+    ]
+    rows.append([button(BOOK_BUTTON, "slots:all")])
+    return "\n".join(lines), markup(*rows)
+
+
+# ---------- Абонементы ----------
+
+
+def package_by_key(key: str) -> Optional[LessonPackage]:
+    return next(
+        (package for package in PURCHASE_PACKAGES.values() if package.key == key),
+        None,
+    )
+
+
+def package_button_text(package: LessonPackage) -> str:
+    text = "{} — {}".format(package.title, format_price(package.price_rub))
+    if package.lessons > 1:
+        text += " ({} за занятие)".format(
+            format_price(package.price_rub // package.lessons)
+        )
+    return text
+
+
+MAX_PENDING_BILLS = 3
+
+
+async def pending_bills(
+    repository: Any, telegram_id: int
+) -> list[LessonPaymentHistoryItem]:
+    """Неоплаченные счета — чтобы к ним можно было вернуться из бота.
+
+    Ссылка на оплату и «Проверить оплату» иначе живут только в одном
+    сообщении, которое легко потерять.
+    """
+    payments = await repository.list_lesson_payments_for_telegram_id(telegram_id)
+    return [payment for payment in payments if payment.status == "pending"][
+        :MAX_PENDING_BILLS
+    ]
+
+
+def bill_title(payment: Any) -> str:
+    return "Счёт №{} на {} — {}".format(
+        payment.id, format_price(payment.amount_minor // 100), payment.package_title
+    )
+
+
+def packages_screen(
+    credits: int,
+    slot_id: int = 0,
+    notice: str = "",
+    bills: Sequence[LessonPaymentHistoryItem] = (),
+) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [notice, ""] if notice else []
+    lines.extend(["Абонементы", balance_line(credits) + "."])
+    if bills:
+        lines.extend(
+            [
+                "",
+                "Есть неоплаченный счёт — его можно оплатить или проверить "
+                "кнопкой ниже, новый создавать не нужно."
+                if len(bills) == 1
+                else "Есть неоплаченные счета — их можно оплатить или проверить "
+                "кнопками ниже.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Выберите абонемент. Оплата — на странице ЮKassa, занятия "
+            "добавятся на баланс сразу после подтверждения оплаты.",
+        ]
+    )
+    rows = [
+        [button(bill_title(bill), "bill:{}:{}".format(bill.id, slot_id))]
+        for bill in bills
+    ]
+    rows.extend(
+        [
+            button(
+                package_button_text(package), "pack:{}:{}".format(package.key, slot_id)
+            )
+        ]
+        for package in PURCHASE_PACKAGES.values()
+    )
+    if slot_id:
+        rows.append([button(BACK + " к занятиям", "slots:all")])
+    return "\n".join(lines), markup(*rows)
+
+
+async def packages_view(
+    repository: Any,
+    telegram_id: int,
+    slot_id: int = 0,
+    notice: str = "",
+) -> tuple[str, InlineKeyboardMarkup]:
+    credits = await repository.get_lesson_credits(telegram_id)
+    bills = await pending_bills(repository, telegram_id)
+    return packages_screen(credits, slot_id, notice, bills)
+
+
+def package_screen(
+    package: LessonPackage,
+    slot_id: int = 0,
+    notice: str = "",
+) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [notice, ""] if notice else []
+    lines.extend(
+        [
+            package.title,
+            "{} за {}.".format(
+                lessons_count(package.lessons), format_price(package.price_rub)
+            ),
+            "",
+            "После нажатия «Оплатить» откроется ссылка на страницу ЮKassa. "
+            "Занятия добавятся на баланс сразу после подтверждения оплаты.",
+        ]
+    )
+    return "\n".join(lines), markup(
+        [
+            button(
+                "Оплатить {}".format(format_price(package.price_rub)),
+                "pay:{}:{}:{}".format(package.key, package.price_rub, slot_id),
+            )
+        ],
+        [button(BACK, "packs:{}".format(slot_id))],
+    )

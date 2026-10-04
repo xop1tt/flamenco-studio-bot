@@ -7,19 +7,45 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from ..runtime.admin_access import get_admin_id
-from ..keyboards.user import (
-    lessons_menu_keyboard,
-    main_menu_keyboard,
-    purchase_menu_keyboard,
+from ..keyboards.user import main_menu_keyboard
+from ..keyboards.user.account import open_profile
+from ..keyboards.user.main_menu import (
+    account_summary,
+    ensure_profile,
+    open_booking,
+    open_my_classes,
+    open_packages,
 )
-from ..keyboards.user.main_menu import ensure_profile
-from ..keyboards.user.account import show_account
 from ..keyboards.user.navigation import cancel_current_action
-from ..class_catalog import format_class_schedule
 
 
 logger = logging.getLogger("bot.handlers.core")
 router = Router(name="core_commands")
+
+CLIENT_HELP = (
+    "Как пользоваться ботом\n\n"
+    "🗓 Записаться — ближайшие занятия, выбор времени и запись\n"
+    "📖 Мои занятия — ваши записи и отмена\n"
+    "💳 Абонементы — баланс и покупка занятий\n"
+    "💃 О студии — направления, цены, правила записи\n"
+    "👤 Профиль — имя и телефон\n"
+    "💬 Помощь — написать в студию\n\n"
+    "/start — главное меню, /cancel — отменить ввод."
+)
+
+ADMIN_HELP = (
+    "Команды администратора:\n"
+    "/admin — панель администратора\n"
+    "/slots — слоты занятий\n"
+    "/slot_add ФОРМАТ ISO-ДАТА ВМЕСТИМОСТЬ — создать слот\n"
+    "/slot_capacity ID ЧИСЛО — изменить вместимость\n"
+    "/slot_close ID — закрыть слот\n"
+    "/support_tickets — обращения поддержки\n"
+    "/support_reply ID текст — ответить\n"
+    "/support_close ID — закрыть обращение\n"
+    "/requests — список незакрытых заявок\n"
+    "/done ID — закрыть заявку"
+)
 
 
 @router.message(CommandStart())
@@ -30,10 +56,12 @@ async def start_command(
 ) -> None:
     await state.clear()
     profile = await ensure_profile(message, repository)
+    summary = await account_summary(repository, profile.telegram_id)
     await message.answer(
-        "¡Hola, {}! Добро пожаловать в студию фламенко.\n"
-        "Здесь можно посмотреть учетную запись, выбрать свободное занятие "
-        "и обратиться в поддержку.".format(profile.user_name),
+        "¡Hola, {}! Это бот студии фламенко Mirada Studio.\n"
+        "Здесь можно записаться на занятие, купить абонемент и посмотреть "
+        "свои записи. Направления, цены и правила — в «💃 О студии».\n\n"
+        "{}".format(profile.user_name, summary),
         reply_markup=main_menu_keyboard(is_admin=profile.is_admin),
     )
     logger.info("Handled /start telegram_id=%s", profile.telegram_id)
@@ -46,28 +74,10 @@ async def help_command(
     repository: Any,
 ) -> None:
     await state.clear()
+    is_admin = await get_admin_id(message, repository) is not None
     await message.answer(
-        "Команды:\n"
-        "/start — главное меню и регистрация\n"
-        "/account — учетная запись\n"
-        "/lessons — занятия и запись\n"
-        "/schedule — запрос актуального расписания\n"
-        "/buy — запрос условий покупки занятий\n"
-        "/help — эта справка\n"
-        "/cancel — отменить текущий ввод\n"
-        "/slots — слоты занятий (администратор)\n"
-        "/support_tickets — обращения поддержки (администратор)\n"
-        "/support_reply ID текст — ответить (администратор)\n"
-        "/support_close ID — закрыть обращение (администратор)\n"
-        "/slot_add ФОРМАТ ISO-ДАТА ВМЕСТИМОСТЬ — создать слот (администратор)\n"
-        "/slot_capacity ID ЧИСЛО — изменить вместимость (администратор)\n"
-        "/slot_close ID — закрыть слот (администратор)\n"
-        "/admin — команды администратора\n"
-        "/requests — список незакрытых заявок (администратор)\n"
-        "/done ID — закрыть заявку (администратор)",
-        reply_markup=main_menu_keyboard(
-            is_admin=await get_admin_id(message, repository) is not None
-        ),
+        CLIENT_HELP + ("\n\n" + ADMIN_HELP if is_admin else ""),
+        reply_markup=main_menu_keyboard(is_admin=is_admin),
     )
     sender = message.from_user
     logger.info("Handled /help telegram_id=%s", sender.id if sender else None)
@@ -79,12 +89,7 @@ async def account_command(
     repository: Any,
     state: FSMContext,
 ) -> None:
-    await state.clear()
-    await show_account(message, repository=repository, state=state)
-    logger.info(
-        "Handled /account telegram_id=%s",
-        message.from_user.id if message.from_user else None,
-    )
+    await open_profile(message, state, repository)
 
 
 @router.message(Command("lessons"))
@@ -93,16 +98,7 @@ async def lessons_command(
     repository: Any,
     state: FSMContext,
 ) -> None:
-    await state.clear()
-    await ensure_profile(message, repository)
-    await message.answer(
-        "Занятия студии фламенко:",
-        reply_markup=lessons_menu_keyboard(),
-    )
-    logger.info(
-        "Handled /lessons telegram_id=%s",
-        message.from_user.id if message.from_user else None,
-    )
+    await open_my_classes(message, state, repository)
 
 
 @router.message(Command("schedule"))
@@ -111,16 +107,7 @@ async def schedule_command(
     state: FSMContext,
     repository: Any,
 ) -> None:
-    await state.clear()
-    slots = await repository.list_class_slots(limit=50)
-    await message.answer(
-        format_class_schedule(slots),
-        reply_markup=lessons_menu_keyboard(),
-    )
-    logger.info(
-        "Handled /schedule telegram_id=%s",
-        message.from_user.id if message.from_user else None,
-    )
+    await open_booking(message, state, repository)
 
 
 @router.message(Command("buy"))
@@ -129,17 +116,7 @@ async def buy_command(
     repository: Any,
     state: FSMContext,
 ) -> None:
-    await state.clear()
-    await ensure_profile(message, repository)
-    await message.answer(
-        "Выберите пакет занятий. Итоговая сумма будет показана до перехода "
-        "к оплате через ЮKassa.",
-        reply_markup=purchase_menu_keyboard(),
-    )
-    logger.info(
-        "Handled /buy telegram_id=%s",
-        message.from_user.id if message.from_user else None,
-    )
+    await open_packages(message, state, repository)
 
 
 @router.message(Command("cancel"))

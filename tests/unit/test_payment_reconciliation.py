@@ -77,6 +77,39 @@ class ReconcilePendingPaymentsTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(self.payment_service.check_payment.await_count, 2)
 
+    async def test_user_is_notified_only_when_sweep_credits_lessons(self):
+        self.repository.list_pending_lesson_payments_older_than.return_value = [
+            _Record(id=1, telegram_id=100),
+            _Record(id=2, telegram_id=200),
+            _Record(id=3, telegram_id=300),
+        ]
+        confirmed = PaymentCheckResult(PaymentCheckStatus.CONFIRMED, credits=4)
+        self.payment_service.check_payment.side_effect = [
+            PaymentCheckResult(PaymentCheckStatus.PENDING),
+            confirmed,
+            PaymentCheckResult(PaymentCheckStatus.ALREADY_SUCCEEDED, credits=4),
+        ]
+        on_confirmed = AsyncMock()
+
+        await self._run_one_tick(on_confirmed=on_confirmed)
+
+        on_confirmed.assert_awaited_once_with(200, confirmed)
+
+    async def test_notification_failure_does_not_stop_the_sweep(self):
+        self.repository.list_pending_lesson_payments_older_than.return_value = [
+            _Record(id=1, telegram_id=100),
+            _Record(id=2, telegram_id=200),
+        ]
+        self.payment_service.check_payment.return_value = PaymentCheckResult(
+            PaymentCheckStatus.CONFIRMED
+        )
+        on_confirmed = AsyncMock(side_effect=RuntimeError("bot blocked"))
+
+        await self._run_one_tick(on_confirmed=on_confirmed)
+
+        self.assertEqual(self.payment_service.check_payment.await_count, 2)
+        self.assertEqual(on_confirmed.await_count, 2)
+
     async def test_listing_failure_is_logged_and_does_not_crash_the_loop(self):
         self.repository.list_pending_lesson_payments_older_than.side_effect = (
             RuntimeError("БД недоступна")

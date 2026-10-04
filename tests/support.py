@@ -30,6 +30,7 @@ class FakeMessage:
         self.chat = SimpleNamespace(type="private")
         self.contact = contact
         self.answer = AsyncMock()
+        self.edit_text = AsyncMock()
         self.bot: Any = None
 
     @property
@@ -38,6 +39,44 @@ class FakeMessage:
         if call is None:
             raise AssertionError("Message.answer was not called")
         return call
+
+    @property
+    def last_edit(self):
+        call = self.edit_text.await_args
+        if call is None:
+            raise AssertionError("Message.edit_text was not called")
+        return call
+
+
+class FakeCallback:
+    """CallbackQuery: нажатие inline-кнопки под сообщением бота."""
+
+    def __init__(self, data, telegram_id=1001, full_name="Анна", message=None):
+        self.data = data
+        self.from_user = SimpleNamespace(
+            id=telegram_id,
+            full_name=full_name,
+            is_bot=False,
+        )
+        self.message = message or FakeMessage(telegram_id=telegram_id)
+        self.answer = AsyncMock()
+        self.bot = SimpleNamespace(send_message=AsyncMock())
+
+    @property
+    def screen(self):
+        """Текст и разметка экрана, показанного в ответ на нажатие."""
+        call = self.message.edit_text.await_args
+        if call is None:
+            raise AssertionError("Screen was not shown")
+        return call.args[0], call.kwargs.get("reply_markup")
+
+
+def inline_buttons(markup):
+    return [button for row in markup.inline_keyboard for button in row]
+
+
+def callback_data(markup):
+    return [button.callback_data for button in inline_buttons(markup)]
 
 
 class FakeState:
@@ -150,6 +189,7 @@ class FakeRepository:
         self.complete_lesson_payment = AsyncMock(return_value=True)
         self.cancel_lesson_payment = AsyncMock()
         self.get_lesson_credits = AsyncMock(return_value=1)
+        self.list_lesson_payments_for_telegram_id = AsyncMock(return_value=[])
         self.get_scheduled_restart = AsyncMock(return_value=None)
         self.set_scheduled_restart = AsyncMock()
         self.clear_scheduled_restart = AsyncMock()

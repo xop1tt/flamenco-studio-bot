@@ -93,15 +93,15 @@ class ClassSlotResponse(BaseModel):
 
 
 class ClassFormatResponse(BaseModel):
-    """Формат занятия: ``key``/``label`` — единственный источник истины,
-
-    ``class_catalog.CLASS_LABELS`` (используется и ботом). Фронтенд не
-    хардкодит подписи направлений отдельно, только маркетинговый текст,
-    которого в БД/каталоге нет (см. ``frontend/src/lib/directions.ts``).
+    """Направление занятий из ``class_catalog`` — того же каталога, которым
+    пользуется бот: название, описание и уровень. Фронтенд ничего из этого
+    не хардкодит (см. ``frontend/src/lib/directions.ts``).
     """
 
     key: str
     label: str
+    description: str
+    level: str
 
 
 class LessonPackageResponse(BaseModel):

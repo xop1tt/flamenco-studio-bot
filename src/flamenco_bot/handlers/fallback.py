@@ -15,7 +15,8 @@ router = Router(name="fallback")
 @router.message()
 async def fallback_message(message: Message, repository: Any) -> None:
     await message.answer(
-        "Не распознал запрос. Используйте кнопки меню или команду /help.",
+        "Не понял сообщение. Выберите раздел в меню ниже или отправьте /help.\n"
+        "Чтобы написать в студию, нажмите «💬 Помощь».",
         reply_markup=main_menu_keyboard(
             is_admin=await get_admin_id(message, repository) is not None
         ),

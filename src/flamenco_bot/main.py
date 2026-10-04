@@ -15,7 +15,7 @@ from .runtime.bot_logging import (
 from .runtime.monitoring import monitor_health
 from .runtime.payment_reconciliation import start_reconciliation_task
 from .runtime.security import SecurityMiddleware, SupportRateLimiter
-from .commands import get_bot_commands
+from .commands import register_commands
 from .config import Config
 from .database import (
     InMemoryRepository,
@@ -26,6 +26,7 @@ from .database.repository import DatabaseUnavailableError
 from .payments import YooKassaClient
 from .services import PaymentService
 from .handlers import router
+from .keyboards.user.purchases import payment_confirmed_notifier
 
 
 async def main():
@@ -112,7 +113,7 @@ async def main():
         await repository.initialize()
         lifecycle.restart_store = repository
         await lifecycle.restore_scheduled_restart()
-        await bot.set_my_commands(get_bot_commands())
+        await register_commands(bot, repository, logger)
         lifecycle_tasks = [
             asyncio.create_task(
                 monitor_health(
@@ -126,6 +127,7 @@ async def main():
             PaymentService(repository, payment_gateway),
             repository,
             logger,
+            on_confirmed=payment_confirmed_notifier(bot, repository),
         )
         if reconciliation_task is not None:
             lifecycle_tasks.append(reconciliation_task)

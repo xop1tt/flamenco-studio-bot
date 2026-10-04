@@ -113,7 +113,11 @@ class ClientAreaApiTests(unittest.TestCase):
             {item["key"] for item in body},
             {"beginner", "intermediate", "individual"},
         )
-        self.assertIn({"key": "beginner", "label": "Фламенко для начинающих"}, body)
+        beginner = next(item for item in body if item["key"] == "beginner")
+        self.assertEqual(beginner["label"], "Фламенко для начинающих")
+        # Описание и уровень — из того же каталога, что и в боте.
+        self.assertIn("без предварительной подготовки", beginner["description"])
+        self.assertEqual(beginner["level"], "Для начинающих, без подготовки")
 
     def test_booking_requires_login(self):
         response = self.client.post("/api/bookings", json={"slot_id": 1})

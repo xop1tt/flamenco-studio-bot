@@ -7,6 +7,7 @@ from .support import router as support_router
 from ..keyboards.user.account import router as account_router
 from ..keyboards.user.lessons import router as lessons_router
 from ..keyboards.user.main_menu import router as main_menu_router
+from ..keyboards.user.purchases import router as purchases_router
 
 router = Router(name="bot")
 router.include_router(core_router)
@@ -15,6 +16,7 @@ router.include_router(admin_router)
 router.include_router(support_router)
 router.include_router(account_router)
 router.include_router(lessons_router)
+router.include_router(purchases_router)
 router.include_router(fallback_router)
 
 __all__ = ["router"]

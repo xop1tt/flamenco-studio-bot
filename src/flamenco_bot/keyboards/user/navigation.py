@@ -4,13 +4,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from ...runtime.admin_access import get_admin_id
-from ...handlers.states import AccountForm, AdminForm, LessonForm
-from . import (
-    account_menu_keyboard,
-    class_menu_keyboard,
-    main_menu_keyboard,
-    purchase_menu_keyboard,
-)
+from ...handlers.states import AccountForm, AdminForm
+from . import main_menu_keyboard, profile_keyboard
 from ..admin import admin_menu_keyboard
 
 
@@ -19,6 +14,7 @@ async def cancel_current_action(
     state: FSMContext,
     repository: Any,
 ) -> None:
+    """«❌ Отмена» / /cancel: прервать ввод и вернуться туда, откуда он начат."""
     current_state = await state.get_state()
     await state.clear()
 
@@ -27,7 +23,8 @@ async def cancel_current_action(
         AccountForm.waiting_for_phone_code.state,
         AccountForm.waiting_for_name.state,
     }:
-        reply_markup = account_menu_keyboard()
+        text = "Ввод отменён. Вы в разделе «Профиль»."
+        reply_markup = profile_keyboard()
     elif (
         current_state
         in {
@@ -39,14 +36,16 @@ async def cancel_current_action(
         }
         and await get_admin_id(message, repository) is not None
     ):
+        text = "Действие отменено."
         reply_markup = admin_menu_keyboard()
-    elif current_state == LessonForm.waiting_for_booking_time.state:
-        reply_markup = class_menu_keyboard()
-    elif current_state == LessonForm.waiting_for_purchase_confirmation.state:
-        reply_markup = purchase_menu_keyboard()
     else:
+        text = (
+            "Ввод отменён. Вы в главном меню."
+            if current_state is not None
+            else "Отменять нечего. Вы в главном меню."
+        )
         reply_markup = main_menu_keyboard(
             is_admin=await get_admin_id(message, repository) is not None
         )
 
-    await message.answer("Действие отменено.", reply_markup=reply_markup)
+    await message.answer(text, reply_markup=reply_markup)

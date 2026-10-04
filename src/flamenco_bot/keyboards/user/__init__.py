@@ -1,121 +1,90 @@
+"""Подписи кнопок и reply-клавиатуры клиентской части бота.
+
+Навигация:
+- главное меню (reply) — шесть разделов, всегда под рукой;
+- внутри разделов «Записаться», «Мои занятия», «Абонементы» — inline-экраны
+  в одном сообщении, «⬅️ Назад» возвращает на предыдущий экран;
+- ввод текста (имя, телефон, обращение) — reply-клавиатура
+  [❌ Отмена] (вернуться в раздел, откуда начат ввод) и [🏠 Главное меню].
+
+Термины едины с сайтом: «Записаться», «Мои занятия», «Абонементы»,
+«Баланс: N занятий», «Профиль», «Помощь», «Направление».
+"""
+
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from ..admin import ADMIN_MENU, BOT_MANAGEMENT_MENU
 from ..common import CANCEL, MAIN_MENU, keyboard
-from ...payments.catalog import PURCHASE_PACKAGES
 
 
-ACCOUNT_MENU = "👤 Учетная запись"
-SHOW_MY_DATA = "📋 Показать мои данные"
-ACCOUNT_NAME = "✏️ Изменить имя"
-ACCOUNT_PHONE = "📱 Изменить номер телефона"
-LESSONS_MENU = "💃 Запись на занятия"
-BOOK_CLASS = "🗓️ Записаться на занятие"
-MY_BOOKINGS = "📖 Мои занятия"
-BUY_LESSONS = "💳 Покупка занятий"
-SCHEDULE = "📅 Расписание"
-CONTACT_SUPPORT = "🆘 Обратиться в поддержку"
-BACK_TO_LESSONS = "⬅️ Назад к занятиям"
-BACK_TO_CLASSES = "⬅️ Назад к выбору занятия"
-BACK_TO_PURCHASES = "⬅️ Назад к выбору пакета"
+BOOK = "🗓 Записаться"
+MY_CLASSES = "📖 Мои занятия"
+PACKAGES = "💳 Абонементы"
+ABOUT = "💃 О студии"
+PROFILE = "👤 Профиль"
+HELP = "💬 Помощь"
+PROFILE_NAME = "✏️ Изменить имя"
+PROFILE_PHONE = "📱 Изменить телефон"
+SEND_PHONE = "📲 Отправить мой номер"
+
+# Подписи прежней версии меню. Reply-клавиатура остаётся у пользователя до
+# тех пор, пока бот не пришлёт новую, поэтому после обновления люди ещё
+# какое-то время нажимают старые кнопки — они ведут в новые разделы.
+LEGACY_TO_SECTION = {
+    "👤 Учетная запись": PROFILE,
+    "📋 Показать мои данные": PROFILE,
+    "📱 Изменить номер телефона": PROFILE_PHONE,
+    "💃 Запись на занятия": BOOK,
+    "🗓️ Записаться на занятие": BOOK,
+    "📅 Расписание": BOOK,
+    "⬅️ Назад к выбору занятия": BOOK,
+    "💳 Покупка занятий": PACKAGES,
+    "⬅️ Назад к выбору пакета": PACKAGES,
+    "🆘 Обратиться в поддержку": HELP,
+    "📚 О студии": ABOUT,
+    "⬅️ Назад к занятиям": MAIN_MENU,
+}
 
 
 def main_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
-    rows = [[ACCOUNT_MENU], [LESSONS_MENU], [CONTACT_SUPPORT]]
+    rows = [[BOOK, MY_CLASSES], [PACKAGES, ABOUT], [PROFILE, HELP]]
     if is_admin:
         rows.append([ADMIN_MENU])
         rows.append([BOT_MANAGEMENT_MENU])
     return keyboard(*rows)
 
 
-def account_menu_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        [SHOW_MY_DATA],
-        [ACCOUNT_PHONE],
-        [ACCOUNT_NAME],
-        [MAIN_MENU],
-    )
+def profile_keyboard() -> ReplyKeyboardMarkup:
+    return keyboard([PROFILE_NAME, PROFILE_PHONE], [MAIN_MENU])
 
 
-def lessons_menu_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        [BOOK_CLASS],
-        [MY_BOOKINGS],
-        [SCHEDULE],
-        [BUY_LESSONS],
-        [MAIN_MENU],
-    )
-
-
-def class_menu_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        ["Фламенко для начинающих"],
-        ["Продолжающая группа"],
-        ["Индивидуальное занятие"],
-        [BACK_TO_LESSONS],
-        [MAIN_MENU],
-    )
-
-
-def purchase_menu_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        *[[package.menu_label] for package in PURCHASE_PACKAGES.values()],
-        [BACK_TO_LESSONS],
-        [MAIN_MENU],
-    )
+def input_keyboard() -> ReplyKeyboardMarkup:
+    return keyboard([CANCEL], [MAIN_MENU])
 
 
 def phone_request_keyboard() -> ReplyKeyboardMarkup:
     return keyboard(
-        [KeyboardButton(text="📲 Отправить мой номер", request_contact=True)],
-        [CANCEL],
-        [MAIN_MENU],
-    )
-
-
-def cancel_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard([CANCEL], [MAIN_MENU])
-
-
-def booking_input_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        [BACK_TO_CLASSES],
-        [CANCEL],
-        [MAIN_MENU],
-    )
-
-
-def purchase_confirmation_keyboard() -> ReplyKeyboardMarkup:
-    return keyboard(
-        [BACK_TO_PURCHASES],
+        [KeyboardButton(text=SEND_PHONE, request_contact=True)],
         [CANCEL],
         [MAIN_MENU],
     )
 
 
 __all__ = [
-    "ACCOUNT_MENU",
-    "ACCOUNT_NAME",
-    "ACCOUNT_PHONE",
-    "BACK_TO_CLASSES",
-    "BACK_TO_LESSONS",
-    "BACK_TO_PURCHASES",
-    "BOOK_CLASS",
-    "BUY_LESSONS",
+    "ABOUT",
+    "BOOK",
     "CANCEL",
-    "CONTACT_SUPPORT",
-    "LESSONS_MENU",
+    "HELP",
+    "LEGACY_TO_SECTION",
     "MAIN_MENU",
-    "MY_BOOKINGS",
-    "SCHEDULE",
-    "SHOW_MY_DATA",
-    "account_menu_keyboard",
-    "booking_input_keyboard",
-    "cancel_keyboard",
-    "class_menu_keyboard",
-    "lessons_menu_keyboard",
+    "MY_CLASSES",
+    "PACKAGES",
+    "PROFILE",
+    "PROFILE_NAME",
+    "PROFILE_PHONE",
+    "SEND_PHONE",
+    "input_keyboard",
     "main_menu_keyboard",
     "phone_request_keyboard",
-    "purchase_confirmation_keyboard",
-    "purchase_menu_keyboard",
+    "profile_keyboard",
 ]

@@ -1,14 +1,19 @@
 import logging
+import time
 from typing import Any
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
-from ..keyboards.common import MAIN_MENU
-from ..keyboards.user import CONTACT_SUPPORT, cancel_keyboard, main_menu_keyboard
+from ..keyboards.user import HELP, input_keyboard, main_menu_keyboard
 from ..runtime.admin_access import get_admin_id
 from ..runtime.security import SupportRateLimiter
 from ..services import (
@@ -22,30 +27,47 @@ from .states import SupportForm
 
 logger = logging.getLogger("bot.handlers.support")
 router = Router(name="support")
+# Брошенное обращение не должно через час превратить случайное сообщение
+# («спасибо», «привет») в новое обращение.
+SUPPORT_INPUT_TTL_SECONDS = 30 * 60
 
 
-@router.message(F.text == CONTACT_SUPPORT)
+@router.message(F.text == HELP)
 async def start_support(
     message: Message,
     state: FSMContext,
 ) -> None:
     await state.set_state(SupportForm.waiting_for_message)
+    await state.update_data(support_started_at=time.time())
     await message.answer(
-        "Опишите вопрос одним сообщением (до 2000 символов). "
-        "Обращение увидят только администраторы студии.",
-        reply_markup=cancel_keyboard(),
+        "Помощь\n\n"
+        "Напишите вопрос одним сообщением (до 2000 символов) — его получат "
+        "администраторы студии, ответ придёт в этот чат.\n\n"
+        "Направления, цены и правила записи — в «💃 О студии». "
+        "Передумали писать — нажмите «❌ Отмена».",
+        reply_markup=input_keyboard(),
     )
 
 
-@router.message(SupportForm.waiting_for_message, F.text == MAIN_MENU)
-async def leave_support(message: Message, state: FSMContext, repository: Any) -> None:
-    await state.clear()
-    await message.answer(
-        "Главное меню студии фламенко.",
-        reply_markup=main_menu_keyboard(
-            is_admin=await get_admin_id(message, repository) is not None
-        ),
+def reply_button_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Ответить", callback_data="support_reply")]
+        ]
     )
+
+
+@router.callback_query(F.data == "support_reply")
+async def start_support_reply(callback: CallbackQuery, state: FSMContext) -> None:
+    """«Ответить» под ответом администратора — продолжить переписку.
+
+    Сообщение попадёт в то же открытое обращение (репозиторий дописывает
+    сообщения пользователя в его открытый тикет).
+    """
+    await callback.answer()
+    if callback.message is None:
+        return
+    await start_support(callback.message, state)
 
 
 @router.message(SupportForm.waiting_for_message, F.text, ~F.text.startswith("/"))
@@ -62,6 +84,18 @@ async def submit_support_message(
     if bot is None:
         raise RuntimeError("Telegram bot is unavailable while saving support")
 
+    started_at = (await state.get_data()).get("support_started_at")
+    if not started_at or time.time() - started_at > SUPPORT_INPUT_TTL_SECONDS:
+        await state.clear()
+        await message.answer(
+            "Сообщение не отправлено: обращение было начато слишком давно. "
+            "Чтобы написать в студию, нажмите «💬 Помощь» ещё раз.",
+            reply_markup=main_menu_keyboard(
+                is_admin=await get_admin_id(message, repository) is not None
+            ),
+        )
+        return
+
     support_service = SupportService(
         repository, support_limiter, AdminNotifier(bot, repository)
     )
@@ -72,7 +106,9 @@ async def submit_support_message(
             body=message.text or "",
         )
     except SupportMessageInvalidError as error:
-        await message.answer(str(error))
+        await message.answer(
+            str(error) + " Попробуйте ещё раз или нажмите «❌ Отмена»."
+        )
         return
     except SupportRateLimitedError:
         await message.answer(
@@ -86,16 +122,19 @@ async def submit_support_message(
     report = submission.notifications
     if report.recipients == 0:
         confirmation = (
-            "Обращение №{} сохранено, но администраторы пока не настроены."
+            "Сообщение сохранено (обращение №{}), но администраторы пока не "
+            "настроены — ответ может задержаться."
         ).format(submission.ticket_id)
     elif not report.complete:
         confirmation = (
-            "Обращение №{} сохранено, но уведомить администратора не удалось. "
-            "Администраторы проверят его в панели поддержки."
+            "Сообщение сохранено (обращение №{}), но уведомить администратора "
+            "сразу не удалось — он увидит его в списке обращений. Ответ придёт "
+            "в этот чат."
         ).format(submission.ticket_id)
     else:
         confirmation = (
-            "Обращение №{} сохранено. Администратор ответит вам здесь."
+            "Сообщение отправлено (обращение №{}). Ответ придёт в этот чат. "
+            "Чтобы дописать, снова нажмите «💬 Помощь»."
         ).format(submission.ticket_id)
     await message.answer(
         confirmation,
@@ -105,7 +144,9 @@ async def submit_support_message(
 
 @router.message(SupportForm.waiting_for_message, ~F.text)
 async def reject_non_text_support_message(message: Message) -> None:
-    await message.answer("Пожалуйста, отправьте обращение обычным текстом.")
+    await message.answer(
+        "Пожалуйста, напишите вопрос обычным текстом или нажмите «❌ Отмена»."
+    )
 
 
 @router.message(Command("support_tickets"))
@@ -158,6 +199,7 @@ async def reply_to_support_ticket(message: Message, repository: Any) -> None:
         await bot.send_message(
             user_id,
             "Ответ службы поддержки по обращению №{}:\n{}".format(ticket_id, body),
+            reply_markup=reply_button_markup(),
         )
     except TelegramAPIError as error:
         logger.exception(

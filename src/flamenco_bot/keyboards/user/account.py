@@ -9,75 +9,61 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from ...runtime.admin_access import get_admin_id
 from . import (
-    ACCOUNT_MENU,
-    ACCOUNT_NAME,
-    ACCOUNT_PHONE,
-    MAIN_MENU,
-    SHOW_MY_DATA,
-    account_menu_keyboard,
-    cancel_keyboard,
-    main_menu_keyboard,
+    PROFILE,
+    PROFILE_NAME,
+    PROFILE_PHONE,
+    input_keyboard,
     phone_request_keyboard,
+    profile_keyboard,
 )
 from .main_menu import ensure_profile
 from ...handlers.states import AccountForm
+from ...presentation import balance_line
 
 
 logger = logging.getLogger("bot.handlers.account")
 router = Router(name="account_keyboard")
 PHONE_CODE_TTL_SECONDS = 300
 PHONE_CODE_MAX_ATTEMPTS = 5
+# Брошенный ввод имени не должен через час превратить случайное сообщение
+# в новое имя: по истечении срока ввод считается отменённым.
+NAME_INPUT_TTL_SECONDS = 15 * 60
 
 
-@router.message(F.text == ACCOUNT_MENU)
-async def open_account_menu(
+async def profile_text(message: Message, repository: Any) -> str:
+    profile = await ensure_profile(message, repository)
+    return (
+        "Профиль\n"
+        "Имя: {}\n"
+        "Телефон: {}\n"
+        "{}.\n\n"
+        "Этот же аккаунт работает и на сайте студии — вход через Telegram."
+    ).format(
+        profile.user_name,
+        profile.phone or "не указан",
+        balance_line(profile.lesson_credits),
+    )
+
+
+@router.message(F.text == PROFILE)
+async def open_profile(
     message: Message,
     state: FSMContext,
+    repository: Any,
 ) -> None:
     await state.clear()
     await message.answer(
-        "Учетная запись. Выберите действие:",
-        reply_markup=account_menu_keyboard(),
+        await profile_text(message, repository),
+        reply_markup=profile_keyboard(),
     )
     logger.info(
-        "Opened account menu telegram_id=%s",
+        "Opened profile telegram_id=%s",
         message.from_user.id if message.from_user else None,
     )
 
 
-@router.message(F.text == SHOW_MY_DATA)
-async def show_account(
-    message: Message,
-    repository: Any,
-    state: FSMContext,
-) -> None:
-    await state.clear()
-    profile = await ensure_profile(message, repository)
-    registered = profile.registered_at.strftime("%d.%m.%Y")
-    phone = profile.phone or "не указан"
-    await message.answer(
-        "Учетная запись\n"
-        "Telegram ID: {}\n"
-        "Имя: {}\n"
-        "Телефон: {}\n"
-        "Остаток занятий: {}\n"
-        "Дата регистрации: {}\n"
-        "Статус: {}".format(
-            profile.telegram_id,
-            profile.user_name,
-            phone,
-            profile.lesson_credits,
-            registered,
-            "администратор" if profile.is_admin else "участник",
-        ),
-        reply_markup=account_menu_keyboard(),
-    )
-    logger.info("Displayed account telegram_id=%s", profile.telegram_id)
-
-
-@router.message(F.text == ACCOUNT_PHONE)
+@router.message(F.text == PROFILE_PHONE)
 async def request_phone(message: Message, state: FSMContext) -> None:
     await state.set_state(AccountForm.waiting_for_phone)
     await message.answer(
@@ -91,12 +77,13 @@ async def request_phone(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text == ACCOUNT_NAME)
+@router.message(F.text == PROFILE_NAME)
 async def request_name(message: Message, state: FSMContext) -> None:
     await state.set_state(AccountForm.waiting_for_name)
+    await state.update_data(name_input_started_at=time.time())
     await message.answer(
-        "Введите имя для учетной записи (до 64 символов).",
-        reply_markup=cancel_keyboard(),
+        "Введите имя для профиля (до 64 символов).",
+        reply_markup=input_keyboard(),
     )
     logger.info(
         "Started profile name update telegram_id=%s",
@@ -113,7 +100,8 @@ async def save_phone(
     contact = message.contact
     if sender is None or contact is None or contact.user_id != sender.id:
         await message.answer(
-            "Нужно отправить именно свой контакт кнопкой «Отправить мой номер»."
+            "Нужно отправить именно свой контакт кнопкой «📲 Отправить мой номер». "
+            "Передумали — нажмите «❌ Отмена»."
         )
         logger.warning(
             "Rejected unverified phone update telegram_id=%s",
@@ -132,7 +120,7 @@ async def save_phone(
     await message.answer(
         "Одноразовый код для подтверждения действия в этом Telegram-чате: {}. "
         "Он действует 5 минут. Введите код ответным сообщением.".format(code),
-        reply_markup=cancel_keyboard(),
+        reply_markup=input_keyboard(),
     )
     logger.info("Sent phone verification code telegram_id=%s", sender.id)
 
@@ -153,8 +141,9 @@ async def verify_phone_code(
         await state.clear()
         logger.warning("Phone verification expired telegram_id=%s", sender.id)
         await message.answer(
-            "Срок действия кода истёк. Запросите изменение телефона заново.",
-            reply_markup=account_menu_keyboard(),
+            "Срок действия кода истёк. Чтобы изменить телефон, нажмите "
+            "«📱 Изменить телефон» ещё раз.",
+            reply_markup=profile_keyboard(),
         )
         return
 
@@ -173,8 +162,9 @@ async def verify_phone_code(
         if attempts >= PHONE_CODE_MAX_ATTEMPTS:
             await state.clear()
             await message.answer(
-                "Лимит попыток исчерпан. Запросите изменение телефона заново.",
-                reply_markup=account_menu_keyboard(),
+                "Лимит попыток исчерпан. Чтобы изменить телефон, нажмите "
+                "«📱 Изменить телефон» ещё раз.",
+                reply_markup=profile_keyboard(),
             )
             logger.warning(
                 "Phone verification attempts exhausted telegram_id=%s",
@@ -192,7 +182,7 @@ async def verify_phone_code(
             "Код не подошёл. Осталось попыток: {}.".format(
                 PHONE_CODE_MAX_ATTEMPTS - attempts
             ),
-            reply_markup=cancel_keyboard(),
+            reply_markup=input_keyboard(),
         )
         return
 
@@ -203,8 +193,8 @@ async def verify_phone_code(
     await repository.update_phone(sender.id, phone)
     await state.clear()
     await message.answer(
-        "Номер телефона подтверждён и обновлён.",
-        reply_markup=account_menu_keyboard(),
+        "Телефон подтверждён и сохранён.\n\n" + await profile_text(message, repository),
+        reply_markup=profile_keyboard(),
     )
     logger.info("Verified and saved phone telegram_id=%s", sender.id)
 
@@ -216,6 +206,15 @@ async def save_name(
     repository: Any,
 ) -> None:
     sender = message.from_user
+    started_at = (await state.get_data()).get("name_input_started_at")
+    if not started_at or time.time() - started_at > NAME_INPUT_TTL_SECONDS:
+        await state.clear()
+        await message.answer(
+            "Ввод имени отменён — прошло слишком много времени. Чтобы изменить "
+            "имя, нажмите «✏️ Изменить имя» ещё раз.",
+            reply_markup=profile_keyboard(),
+        )
+        return
     user_name = (message.text or "").strip()
     if not user_name or len(user_name) > 64:
         logger.warning(
@@ -223,7 +222,10 @@ async def save_name(
             message.from_user.id if message.from_user else None,
             len(user_name),
         )
-        await message.answer("Имя должно содержать от 1 до 64 символов.")
+        await message.answer(
+            "Имя должно содержать от 1 до 64 символов. Введите имя ещё раз "
+            "или нажмите «❌ Отмена»."
+        )
         return
     if sender is None:
         raise ValueError("У сообщения отсутствует Telegram-пользователь")
@@ -231,26 +233,7 @@ async def save_name(
     await repository.update_user_name(sender.id, user_name)
     await state.clear()
     await message.answer(
-        "Имя учетной записи обновлено.",
-        reply_markup=account_menu_keyboard(),
+        "Имя сохранено.\n\n" + await profile_text(message, repository),
+        reply_markup=profile_keyboard(),
     )
     logger.info("Saved profile name telegram_id=%s", sender.id)
-
-
-@router.message(F.text == MAIN_MENU)
-async def return_from_account(
-    message: Message,
-    state: FSMContext,
-    repository: Any,
-) -> None:
-    await state.clear()
-    await message.answer(
-        "Главное меню студии фламенко.",
-        reply_markup=main_menu_keyboard(
-            is_admin=await get_admin_id(message, repository) is not None
-        ),
-    )
-    logger.info(
-        "Returned to main menu from account telegram_id=%s",
-        message.from_user.id if message.from_user else None,
-    )
