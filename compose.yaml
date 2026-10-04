@@ -24,6 +24,7 @@ services:
       ENV: production
       DATABASE_SSL_MODE: verify-full
       BOT_LOG_DIR: /var/log/flamenco
+      STUDIO_TIMEZONE: ${STUDIO_TIMEZONE:-Europe/Moscow}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
     stop_grace_period: 30s
@@ -46,6 +47,7 @@ services:
       DATABASE_SSL_MODE: verify-full
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
+      STUDIO_TIMEZONE: ${STUDIO_TIMEZONE:-Europe/Moscow}
       # Rate limit входа считает попытки по IP клиента. X-Forwarded-For
       # принимается только от контейнера сайта (frontend) — он передаёт
       # заголовок, который записал edge-прокси (docs/deployment.md). Один

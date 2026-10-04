@@ -42,6 +42,7 @@ from ..services import (
     normalize_user_name,
 )
 from ..class_catalog import CLASS_LABELS
+from ..studio_time import format_studio_datetime, parse_studio_datetime
 from ..database.repository import CLASS_KEYS
 from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
 
@@ -87,7 +88,7 @@ async def _show_class_slots(message: Message, repository: Any) -> None:
         "{} | {} | {} | {}/{} | {}".format(
             slot.id,
             CLASS_LABELS[slot.class_key],
-            slot.starts_at.strftime("%d.%m.%Y %H:%M %Z"),
+            format_studio_datetime(slot.starts_at),
             slot.booked_count,
             slot.capacity,
             "открыт" if slot.status == "open" else "закрыт",
@@ -152,7 +153,7 @@ async def add_class_slot(message: Message, repository: Any) -> None:
         "Слот №{} создан: «{}», {} (вместимость {}).".format(
             slot.id,
             CLASS_LABELS[slot.class_key],
-            slot.starts_at.strftime("%d.%m.%Y %H:%M %Z"),
+            format_studio_datetime(slot.starts_at),
             slot.capacity,
         ),
         reply_markup=admin_menu_keyboard(),
@@ -307,7 +308,7 @@ async def show_bot_status(
     )
     memory_mb, cpu_seconds = get_process_resources()
     scheduled_restart = (
-        restart_controller.scheduled_restart_at.strftime("%Y-%m-%d %H:%M")
+        format_studio_datetime(restart_controller.scheduled_restart_at)
         if restart_controller.scheduled_restart_at is not None
         else "нет"
     )
@@ -400,7 +401,7 @@ async def start_scheduling_restart(
         return
     await state.set_state(AdminForm.waiting_for_scheduled_restart)
     await message.answer(
-        "Введите дату и время перезапуска по локальному времени сервера "
+        "Введите дату и время перезапуска по времени студии "
         "в формате ГГГГ-ММ-ДД ЧЧ:ММ.",
         reply_markup=bot_schedule_input_keyboard(),
     )
@@ -471,19 +472,18 @@ async def save_restart_schedule(
         await state.clear()
         return
     try:
-        scheduled_at = datetime.strptime(
+        # Администратор вводит время студии, а не пояс сервера (в Docker — UTC).
+        scheduled_at = parse_studio_datetime(
             (message.text or "").strip(),
             "%Y-%m-%d %H:%M",
-        ).astimezone()
+        )
         await restart_controller.schedule_restart(scheduled_at)
     except ValueError:
         await message.answer("Укажите будущее время в формате ГГГГ-ММ-ДД ЧЧ:ММ.")
         return
     await state.clear()
     await message.answer(
-        "Перезапуск запланирован на {} (локальное время сервера).".format(
-            scheduled_at.strftime("%Y-%m-%d %H:%M")
-        ),
+        "Перезапуск запланирован на {}.".format(format_studio_datetime(scheduled_at)),
         reply_markup=bot_management_keyboard(),
     )
 

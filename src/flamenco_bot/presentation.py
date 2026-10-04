@@ -3,10 +3,9 @@
 Только форматирование: бизнес-правила (окно отмены, списание занятий)
 живут в репозитории и сервисах, здесь лишь показываются пользователю.
 
-Время: момент времени показывается как есть, без перевода в часовой пояс
-студии — он ещё не определён (см. аудит, раздел о часовых поясах). Когда
-пояс будет известен, перевод добавляется в ``format_class_time`` и
-применяется ко всем клиентским сообщениям сразу.
+Время показывается в часовом поясе студии (``STUDIO_TIMEZONE``, см.
+``studio_time.py``) — так же, как на сайте: один и тот же момент из
+PostgreSQL выглядит одинаково в боте и в браузере.
 """
 
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ from typing import Optional, Sequence
 
 from .config import Config
 from .database.repository import BOOKING_CANCELLATION_DEADLINE
+from .studio_time import to_studio_time
 
 
 WEEKDAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
@@ -45,13 +45,14 @@ def balance_line(credits: int) -> str:
 
 
 def format_class_time(moment: datetime, now: Optional[datetime] = None) -> str:
-    """«Вт 14.10 · 19:00»; год добавляется, только если он не текущий."""
-    current = now or datetime.now(timezone.utc)
-    date_format = "%d.%m" if moment.year == current.year else "%d.%m.%Y"
+    """«Вт 14.10 · 19:00» в поясе студии; год — только если он не текущий."""
+    local = to_studio_time(moment)
+    current = to_studio_time(now or datetime.now(timezone.utc))
+    date_format = "%d.%m" if local.year == current.year else "%d.%m.%Y"
     return "{} {} · {}".format(
-        WEEKDAYS[moment.weekday()],
-        moment.strftime(date_format),
-        moment.strftime("%H:%M"),
+        WEEKDAYS[local.weekday()],
+        local.strftime(date_format),
+        local.strftime("%H:%M"),
     )
 
 

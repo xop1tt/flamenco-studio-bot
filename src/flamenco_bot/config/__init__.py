@@ -3,6 +3,7 @@
 import os
 from urllib.parse import urlsplit
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -43,6 +44,17 @@ def parse_database_pool_sizes(min_size: str, max_size: str) -> tuple[int, int]:
             "1 <= DATABASE_POOL_MIN_SIZE <= DATABASE_POOL_MAX_SIZE"
         )
     return minimum, maximum
+
+
+def parse_studio_timezone(value: str) -> ZoneInfo:
+    name = value.strip() or "Europe/Moscow"
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as error:
+        raise ValueError(
+            "STUDIO_TIMEZONE должен быть IANA-именем часового пояса, "
+            "например Europe/Moscow"
+        ) from error
 
 
 def parse_website_url(value: str, env: str) -> Optional[str]:
@@ -94,6 +106,14 @@ class Config:
         "YOOKASSA_RETURN_URL",
         "https://t.me/",
     ).strip()
+
+    # Часовой пояс студии: в нём бот показывает время занятий, сроки отмены
+    # и уведомления. Сайт читает ту же переменную (FLAMENCO WEBSITE,
+    # src/lib/format.ts) с тем же значением по умолчанию — один и тот же
+    # момент из PostgreSQL выглядит одинаково в обоих интерфейсах.
+    STUDIO_TIMEZONE: ZoneInfo = parse_studio_timezone(
+        os.getenv("STUDIO_TIMEZONE", "Europe/Moscow")
+    )
 
     # Публичный адрес сайта студии — бот ссылается на него в «О студии»,
     # «Профиле» и «Абонементах». Необязателен: без него бот просто не

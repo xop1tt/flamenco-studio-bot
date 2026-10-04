@@ -11,6 +11,7 @@ from typing import Any, Sequence
 
 from ..class_catalog import CLASS_LABELS
 from ..database.repository import ClassBooking, ClassSlot
+from ..studio_time import format_studio_datetime
 from .notifications import AdminNotifier, NotificationReport
 
 
@@ -69,7 +70,7 @@ class BookingService:
             "Новая запись №{}: {} — {}, участник {} (ID {}).".format(
                 booking.id,
                 CLASS_LABELS[booking.class_key],
-                booking.starts_at.strftime("%d.%m.%Y в %H:%M %Z"),
+                format_studio_datetime(booking.starts_at),
                 participant_name,
                 booking.telegram_id,
             ),

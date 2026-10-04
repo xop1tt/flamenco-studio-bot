@@ -30,6 +30,7 @@ from flamenco_bot.keyboards.user.lessons import (
 )
 from flamenco_bot.keyboards.user.main_menu import open_my_classes
 from flamenco_bot.runtime.security import SupportRateLimiter
+from flamenco_bot.studio_time import to_studio_time
 from tests.support import (
     FakeCallback,
     FakeMessage,
@@ -219,7 +220,7 @@ class SlotsScreenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("Начинающие", slot_button.text)
         self.assertIn("3 места", slot_button.text)
-        self.assertIn(soon.strftime("%H:%M"), slot_button.text)
+        self.assertIn(to_studio_time(soon).strftime("%H:%M"), slot_button.text)
 
     async def test_direction_filter_uses_direction_query(self):
         callback = FakeCallback("slots:individual")
@@ -262,8 +263,8 @@ class ClassBookingHandlerTests(unittest.IsolatedAsyncioTestCase):
         for expected in (
             "Вы записаны",
             "Фламенко для начинающих",
-            starts_at.strftime("%d.%m"),
-            starts_at.strftime("%H:%M"),
+            to_studio_time(starts_at).strftime("%d.%m"),
+            to_studio_time(starts_at).strftime("%H:%M"),
             "Списано 1 занятие",
             "Баланс: 3 занятия",
             "Отменить запись можно до",
