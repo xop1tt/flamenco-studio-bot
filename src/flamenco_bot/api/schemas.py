@@ -97,7 +97,7 @@ class ClassSlotResponse(BaseModel):
 class ClassFormatResponse(BaseModel):
     """Направление занятий из ``class_catalog`` — того же каталога, которым
     пользуется бот: название, описание и уровень. Фронтенд ничего из этого
-    не хардкодит (см. ``frontend/src/lib/directions.ts``).
+    не хардкодит (см. ``src/lib/directions.ts`` в проекте сайта).
     """
 
     key: str

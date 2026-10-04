@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Локальный запуск Flamenco Studio одной командой: Telegram-бот + backend API +
-# сайт (Next.js). Для разработки, не для продакшена — там compose.yaml
-# (см. docs/deployment.md).
+# Локальный запуск backend Flamenco Studio одной командой: Telegram-бот +
+# веб-API (FastAPI). Для разработки, не для продакшена — там compose.yaml
+# (см. docs/deployment.md). Сайт — отдельный проект (FLAMENCO WEBSITE),
+# запускается там через `npm run dev` и обращается к этому API по HTTP.
 #
-#   ./run.sh          бот + API + сайт
-#   ./run.sh site     только API + сайт
+#   ./run.sh          бот + API
+#   ./run.sh api      только API
 #   ./run.sh bot      только бот
 #
-# Логи всех процессов — в одном терминале с префиксами [bot] [api] [web].
+# Логи всех процессов — в одном терминале с префиксами [bot] [api].
 # Ctrl+C останавливает всё; если один процесс завершился — останавливаются и
 # остальные (чтобы падение не прошло незамеченным).
 #
-# Порты: API_PORT (по умолчанию 8000), WEB_PORT (по умолчанию 3000).
+# Порт API: API_PORT (по умолчанию 8000).
 # Совместим с системным bash 3.2 на macOS.
 
 set -uo pipefail
@@ -19,18 +20,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 MODE="${1:-all}"
 API_PORT="${API_PORT:-8000}"
-WEB_PORT="${WEB_PORT:-3000}"
 
 case "$MODE" in
-    all) RUN_BOT=1; RUN_SITE=1 ;;
-    site) RUN_BOT=0; RUN_SITE=1 ;;
-    bot) RUN_BOT=1; RUN_SITE=0 ;;
+    all) RUN_BOT=1; RUN_API=1 ;;
+    api) RUN_BOT=0; RUN_API=1 ;;
+    bot) RUN_BOT=1; RUN_API=0 ;;
     -h | --help)
-        sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
-        echo "Неизвестный режим «$MODE». Используйте: ./run.sh [all|site|bot]" >&2
+        echo "Неизвестный режим «$MODE». Используйте: ./run.sh [all|api|bot]" >&2
         exit 2
         ;;
 esac
@@ -42,22 +42,15 @@ fail() {
 
 # ---------- Проверки окружения ----------
 [ -x .venv/bin/python ] || fail "Не найден .venv/bin/python. Создайте окружение: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
-if [ "$RUN_SITE" = 1 ] && [ ! -d frontend/node_modules ]; then
-    fail "Не найден frontend/node_modules. Установите зависимости: (cd frontend && npm install)"
-fi
 [ -f .env ] || echo "[run] Внимание: нет файла .env — переменные берутся только из окружения (см. env.example)." >&2
 
 port_busy() {
     lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
 }
-if [ "$RUN_SITE" = 1 ]; then
-    for port in "$API_PORT" "$WEB_PORT"; do
-        if port_busy "$port"; then
-            echo "[run] Порт $port уже занят:" >&2
-            lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2
-            fail "Остановите процесс выше (например, прежний run-website.sh) или задайте другой порт: API_PORT=… WEB_PORT=… ./run.sh"
-        fi
-    done
+if [ "$RUN_API" = 1 ] && port_busy "$API_PORT"; then
+    echo "[run] Порт $API_PORT уже занят:" >&2
+    lsof -nP -iTCP:"$API_PORT" -sTCP:LISTEN >&2
+    fail "Остановите процесс выше или задайте другой порт: API_PORT=… ./run.sh"
 fi
 
 # Пакет берётся из src/ напрямую — не зависим от editable-install `.pth`
@@ -67,7 +60,7 @@ export PYTHONUNBUFFERED=1
 
 # ---------- Процессы ----------
 # set -m: каждый фоновый процесс — в своей группе, чтобы при остановке
-# погасить его целиком (npm → node, uvicorn → reload-воркер).
+# погасить его целиком (uvicorn → reload-воркер).
 set -m
 PIDS=()
 NAMES=()
@@ -114,17 +107,16 @@ stop_all() {
 trap 'stop_all; exit 130' INT TERM
 trap 'stop_all' EXIT
 
-if [ "$RUN_SITE" = 1 ]; then
+if [ "$RUN_API" = 1 ]; then
     start api 36 .venv/bin/python -m uvicorn flamenco_bot.api.app:app \
         --host 127.0.0.1 --port "$API_PORT" --reload --reload-dir src
-    start web 35 bash -c "cd frontend && API_BASE_URL='http://127.0.0.1:$API_PORT' exec npm run dev -- --port '$WEB_PORT'"
 fi
 if [ "$RUN_BOT" = 1 ]; then
     start bot 33 .venv/bin/python -m flamenco_bot
 fi
 
-if [ "$RUN_SITE" = 1 ]; then
-    echo "[run] сайт: http://localhost:$WEB_PORT   API: http://127.0.0.1:$API_PORT"
+if [ "$RUN_API" = 1 ]; then
+    echo "[run] API: http://127.0.0.1:$API_PORT (сайт: cd \"../FLAMENCO WEBSITE\" && npm run dev)"
 fi
 echo "[run] Ctrl+C — остановить всё"
 

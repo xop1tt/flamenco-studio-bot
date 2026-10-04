@@ -32,8 +32,9 @@ services:
 
   # Веб-API (src/flamenco_bot/api): тот же образ и код, что и бот, другая
   # команда запуска. Не публикует порт на хост — доступен только контейнеру
-  # frontend по внутреннему имени сервиса (см. API_BASE_URL там); сайт
-  # проксирует к нему /api/* (frontend/next.config.ts), так что у системы
+  # сайта (отдельный проект FLAMENCO WEBSITE, свой compose.yaml) по имени
+  # сервиса `api` в общей docker-сети `flamenco-web` (см. networks ниже).
+  # Сайт проксирует к нему /api/* (next.config.ts сайта), так что у системы
   # остаётся одна публичная точка входа.
   api:
     <<: *backend
@@ -49,42 +50,17 @@ services:
       - /tmp:rw,noexec,nosuid,size=16m
     expose:
       - "8000"
-
-  # Публичный сайт (frontend/, Next.js). Единственный сервис с портом,
-  # опубликованным на хост — перед ним должен стоять TLS-терминирующий
-  # reverse proxy (см. docs/deployment.md), сам он слушает только HTTP.
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        # NEXT_PUBLIC_* переменные Next.js встраивает в клиентский бандл на
-        # этапе сборки, а не читает при старте контейнера — поэтому это
-        # build arg, а не environment: ниже. Значение берётся из корневого
-        # .env (см. env.example), не из frontend/.env.local.
-        NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${NEXT_PUBLIC_TELEGRAM_BOT_USERNAME:?Set NEXT_PUBLIC_TELEGRAM_BOT_USERNAME to the bot's public @username}
-    image: flamenco-studio-frontend:local
-    init: true
-    restart: unless-stopped
-    depends_on:
-      - api
-    environment:
-      API_BASE_URL: http://api:8000
-      PORT: "3000"
-      HOSTNAME: "0.0.0.0"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=16m
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "3000:3000"
-    logging:
-      driver: local
-      options:
-        max-size: 10m
-        max-file: "3"
+    networks:
+      - default
+      - web
 
 volumes:
   bot_logs:
+
+networks:
+  # Общая сеть с compose-проектом сайта: сайт подключается к ней как
+  # external и обращается к API по http://api:8000. Имя фиксированное
+  # (без префикса проекта), поэтому backend нужно поднять первым — он и
+  # создаёт сеть.
+  web:
+    name: flamenco-web
