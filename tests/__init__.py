@@ -17,8 +17,19 @@
 """
 
 import os
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Тесты запускаются и из корня этого проекта, и из родительской папки
+# рабочей области редактора (обнаружение тестов в VS Code): пакет
+# ``flamenco_bot`` лежит в src/, и от PYTHONPATH или установки пакета зависеть
+# нельзя. Этот файл импортируется раньше любого тестового модуля.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+for _path in (_PROJECT_ROOT / "src", _PROJECT_ROOT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 load_dotenv()
 
