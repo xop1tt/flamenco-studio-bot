@@ -29,10 +29,6 @@ const WHY_US = [
     icon: "calendar" as const,
     text: "Гибкое расписание и возможность индивидуальных занятий.",
   },
-  {
-    icon: "telegram" as const,
-    text: "Личный кабинет, онлайн-запись и абонементы — через тот же Telegram-аккаунт, что и в боте студии.",
-  },
 ];
 
 // Главная = сцена (HomeStage, позади) + контент (поверх). Секции ниже —
@@ -64,7 +60,7 @@ export default async function HomePage() {
           <section data-scene="hero" className="stage-dark relative">
             <div className="sticky top-0 flex h-[100dvh] items-center">
               <div className="mx-auto w-full max-w-6xl px-4">
-                <div data-sb="hero-text" className="stage-copy flex max-w-xl flex-col items-start gap-5 text-left">
+                <div data-sb="hero-text" className="stage-copy flex max-w-xl flex-col items-start gap-3 text-left">
                   <span className="eyebrow">Студия фламенко</span>
                   <h1 className="font-heading text-5xl font-bold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
                     Mirada Studio
@@ -73,7 +69,7 @@ export default async function HomePage() {
                     Танец фламенко для начинающих и продолжающих: живой ритм,
                     работа с телом и характером — в группе или индивидуально.
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-3">
+                  <div className="mt-1 flex flex-wrap gap-3">
                     <Link
                       href={heroCtaHref}
                       className="rounded-full bg-[var(--primary)] px-7 py-3.5 text-base font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
@@ -96,9 +92,9 @@ export default async function HomePage() {
             </div>
           </section>
 
-          <section data-scene="about" className="px-4 py-20">
+          <section data-scene="about" className="px-4 py-12">
             <div className="glass-medium mx-auto flex w-full max-w-5xl flex-col justify-center rounded-[32px] p-8 sm:p-12">
-              <div data-sb="about-heading" className="mb-6 flex flex-col items-center gap-3 text-center">
+              <div data-sb="about-heading" className="mb-3.5 flex flex-col items-center gap-3 text-center">
                 <span className="eyebrow">О нас</span>
                 <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
                   Почему мы?
@@ -106,14 +102,14 @@ export default async function HomePage() {
               </div>
               <p
                 data-sb="about-intro"
-                className="mx-auto mb-10 max-w-2xl text-center text-base leading-relaxed text-[var(--text-secondary)]"
+                className="mx-auto mb-6 max-w-2xl text-center text-base leading-relaxed text-[var(--text-secondary)]"
               >
                 Mirada Studio — пространство для тех, кто хочет танцевать
                 фламенко в своём темпе: от первого урока до сцены.
                 Онлайн-запись, абонементы и личный кабинет — всё в одном
                 месте, через тот же Telegram-аккаунт, что и в боте студии.
               </p>
-              <div className="grid gap-8 sm:grid-cols-2">
+              <div className="grid gap-5 sm:grid-cols-3">
                 {WHY_US.map((item, i) => (
                   <div
                     key={item.text}
@@ -133,9 +129,9 @@ export default async function HomePage() {
           <section
             id="directions"
             data-scene="directions"
-            className="mx-auto w-full max-w-5xl scroll-mt-24 px-4 py-20"
+            className="mx-auto w-full max-w-5xl scroll-mt-24 px-4 py-12"
           >
-            <div data-sb="directions-heading" className="mb-10 flex flex-col items-center gap-3 text-center">
+            <div data-sb="directions-heading" className="mb-4 flex flex-col items-center gap-3 text-center">
               <span className="eyebrow">Наши направления</span>
               <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
                 Выберите подходящее
@@ -146,8 +142,8 @@ export default async function HomePage() {
             </div>
           </section>
 
-          <section data-scene="schedule" className="mx-auto w-full max-w-5xl px-4 py-20">
-            <div data-sb="schedule-heading" className="mb-10 flex flex-col items-center gap-3 text-center">
+          <section data-scene="schedule" className="mx-auto w-full max-w-5xl px-4 py-12">
+            <div data-sb="schedule-heading" className="mb-6 flex flex-col items-center gap-3 text-center">
               <span className="eyebrow">Расписание</span>
               <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
                 Ближайшие занятия
@@ -164,9 +160,9 @@ export default async function HomePage() {
 
           {/* Финал: снова тёмная сцена — веер складывается и уходит вниз
               (см. HomeStory), контент — в левой колонке. */}
-          <section data-scene="cta" className="stage-dark py-24">
+          <section data-scene="cta" className="stage-dark py-14">
             <div className="mx-auto w-full max-w-6xl px-4">
-              <div className="stage-copy flex max-w-xl flex-col items-center gap-6 text-center lg:items-start lg:text-left">
+              <div className="stage-copy flex max-w-xl flex-col items-center gap-4 text-center lg:items-start lg:text-left">
                 <div data-sb="cta-heading" className="flex flex-col items-center gap-3 lg:items-start">
                   <span className="eyebrow">Готовы начать?</span>
                   <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
@@ -177,26 +173,22 @@ export default async function HomePage() {
                     выбрать направление и время занятия.
                   </p>
                 </div>
-                {TELEGRAM_BOT_USERNAME && (
-                  <a
-                    data-sb="cta-button"
-                    href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
-                  >
-                    Написать в Telegram
-                  </a>
-                )}
                 <div data-sb="cta-contacts" className="glass-medium w-full rounded-[28px] p-6 [text-shadow:none] sm:p-7">
                   <dl className="flex flex-col gap-3 text-left">
                     <ContactRow label="Адрес" value={CONTACTS.address} />
                     <ContactRow label="Телефон" value={CONTACTS.phone} />
-                    <ContactRow
-                      label="Telegram"
-                      value={TELEGRAM_BOT_USERNAME ? `@${TELEGRAM_BOT_USERNAME}` : "Ссылка уточняется"}
-                    />
                   </dl>
+                  {TELEGRAM_BOT_USERNAME && (
+                    <a
+                      data-sb="cta-button"
+                      href={`https://t.me/${TELEGRAM_BOT_USERNAME}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-5 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-base font-semibold text-[var(--on-primary)] shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:bg-[var(--primary-hover)] hover:shadow-[var(--shadow-card-hover)]"
+                    >
+                      Написать в Telegram
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
@@ -208,14 +200,14 @@ export default async function HomePage() {
 }
 
 // Иконки для "Почему мы?" — разные и по теме каждого пункта (группы,
-// уровни, расписание, Telegram-бронирование), а не одна и та же картинка
-// на всех плитках. Пока это неоновые иконки, не фотографии: реальных фото
-// студии/преподавателей в проекте нет, выдумывать их нельзя (CLAUDE.md §27).
+// уровни, расписание), а не одна и та же картинка на всех плитках. Пока
+// это неоновые иконки, не фотографии: реальных фото студии/преподавателей
+// в проекте нет, выдумывать их нельзя (CLAUDE.md §27).
 function WhyUsIcon({
   variant,
   index,
 }: {
-  variant: "group" | "levels" | "calendar" | "telegram";
+  variant: "group" | "levels" | "calendar";
   index: number;
 }) {
   return (
@@ -246,7 +238,6 @@ function WhyUsIcon({
             <path d="M3.5 9.5h17M8 3v4M16 3v4" />
           </>
         )}
-        {variant === "telegram" && <path d="M21.5 2.5 10.8 13.2M21.5 2.5 15 21.5l-4.2-8.3-8.3-4.2z" />}
       </svg>
     </div>
   );

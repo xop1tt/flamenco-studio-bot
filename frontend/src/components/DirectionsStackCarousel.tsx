@@ -113,24 +113,6 @@ export function DirectionsStackCarousel({ directions }: { directions: Direction[
             <p className="text-base leading-relaxed text-[var(--text-secondary)]">
               {direction.description}
             </p>
-            <dl className="flex flex-col gap-1 text-sm text-[var(--text-secondary)]">
-              <div className="flex justify-between gap-2">
-                <dt className="text-[var(--text-primary)]">Длительность</dt>
-                <dd>уточняется</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-[var(--text-primary)]">Дни и время</dt>
-                <dd>см. расписание</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-[var(--text-primary)]">Группа</dt>
-                <dd>уточняется</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-[var(--text-primary)]">Обувь/форма</dt>
-                <dd>уточняется</dd>
-              </div>
-            </dl>
             <Link
               href={`/schedule?class_key=${direction.key}`}
               tabIndex={isActive ? undefined : -1}

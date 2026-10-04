@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { gsap, ScrollTrigger } from "@/lib/gsap";
-import { PETALS } from "./home/HomeStage";
 
 const SCENES = ["hero", "about", "directions", "schedule", "cta"] as const;
 
@@ -15,16 +14,18 @@ const SCENES = ["hero", "about", "directions", "schedule", "cta"] as const;
  * scroll-позиция — всегда одно и то же визуальное состояние, обратный
  * скролл проходит ту же траекторию в обратную сторону без play()/reverse().
  *
- *   0 hero        тёмная сцена: дымка, софит, веер в стороне, «FLAMENCO»
- *   0→1           фон приближается и теплеет, тип уезжает, веер выходит
- *                 вперёд и "раскрывается" (scaleX), кастаньеты пересекают
- *                 кадр, лепестки разлетаются от веера, сцена растворяется
- *                 в тоне следующей
- *   1 about       раскрытый веер — акцентом слева от панели «Почему мы?»
- *   2 directions  веер по центру-слева, кастаньеты справа у заголовка
- *   3 schedule    веер справа, падает роза
- *   4 cta         фон снова тёмная сцена; веер складывается и уходит вниз,
- *                 роза остаётся лежать рядом — сцена "после танца"
+ * Подвижных объектов на сцене больше нет (веер убран по запросу) — фон
+ * состоит только из статичных слоёв (.stage-base, .stage-spot, .stage-tone)
+ * с плавным сдвигом софита/тона и затемнением по ходу скролла; весь
+ * "сюжет" сцены — это появление контента (reveal) поверх неё.
+ *
+ *   0 hero        тёмная сцена: софит в одном положении
+ *   0→1           софит/тон смещаются, сцена растворяется в тоне About
+ *   1 about       светлая тема, контент панели «Почему мы?»
+ *   1→3           тон продолжает мягкий сдвиг через Directions к Schedule
+ *   3 schedule    тон справа
+ *   3→4           сцена снова темнеет к CTA
+ *   4 cta         тёмная сцена — "после танца"
  *
  * Якоря сцен меряются по DOM (центр секции в центре экрана), между
  * якорями — линейная интерполяция. ВАЖНО: высота самих секций в
@@ -67,26 +68,6 @@ export function HomeStory({ children }: { children: ReactNode }) {
 
     const q = (name: string) => root.querySelector<HTMLElement>(`[data-st="${name}"]`)!;
     const sb = (name: string) => root.querySelector<HTMLElement>(`[data-sb="${name}"]`);
-    const vw = (n: number) => (n * window.innerWidth) / 100;
-    const vh = (n: number) => (n * window.innerHeight) / 100;
-
-    // Позиция элемента без учёта transform — относительно (fixed) сцены.
-    const basePoint = (el: HTMLElement) => {
-      let x = 0;
-      let y = 0;
-      let node: HTMLElement | null = el;
-      while (node && node !== stage) {
-        x += node.offsetLeft;
-        y += node.offsetTop;
-        node = node.offsetParent as HTMLElement | null;
-      }
-      return { x, y };
-    };
-    // Якорь объекта → точка экрана (X vw, Y vh).
-    const at = (el: HTMLElement, X: number, Y: number) => ({
-      x: () => vw(X) - basePoint(el).x,
-      y: () => vh(Y) - basePoint(el).y,
-    });
 
     let anchors: number[] = [];
     const measure = () => {
@@ -111,15 +92,9 @@ export function HomeStory({ children }: { children: ReactNode }) {
     };
 
     const ctx = gsap.context(() => {
-      const haze = q("haze");
       const spot = q("spot");
       const tone = q("tone");
       const toneGlow = q("tone-glow");
-      const type = q("type");
-      const fan = q("fan");
-      const castanets = q("castanets");
-      const rose = q("rose");
-      const petals = Array.from(root.querySelectorAll<HTMLElement>('[data-st="petal"]'));
 
       const tl = gsap.timeline({ paused: true, defaults: { ease: "power1.inOut", duration: 1 } });
       // Появление контента — fromTo (а не from): таймлайн пересобирается на
@@ -130,73 +105,37 @@ export function HomeStory({ children }: { children: ReactNode }) {
       };
 
       // ---------- Сцена 1 → 2: Hero раскручивается в About ----------
-      tl.to(haze, { scale: 1.35, xPercent: -6, rotation: 4, duration: 1 }, 0)
-        .to(haze, { opacity: 0.85, duration: 0.45 }, 0)
-        .to(haze, { opacity: 0.25, duration: 0.5 }, 0.5)
-        .to(spot, { "--spot-x": "38%", "--spot-y": "42%", "--spot-r": "78%", "--spot-color": "rgba(214, 112, 52, 0.55)", duration: 0.6 }, 0)
+      tl.to(spot, { "--spot-x": "38%", "--spot-y": "42%", "--spot-r": "78%", "--spot-color": "rgba(214, 112, 52, 0.55)", duration: 0.6 }, 0)
         .to(spot, { "--spot-x": "50%", "--spot-y": "18%", "--spot-color": "rgba(120, 20, 36, 0.5)", duration: 0.4 }, 0.6)
         .to(tone, { opacity: 1, duration: 0.4 }, 0.6)
-        .to(type, { xPercent: -28, scale: 1.25, opacity: 0, duration: 0.9 }, 0);
+        .to(toneGlow, { "--glow-x": "15%", "--glow-y": "62%", "--tone-hue": "-8deg", duration: 1 }, 1)
+        .to(toneGlow, { "--glow-x": "85%", "--glow-y": "40%", "--tone-hue": "6deg", duration: 1 }, 2);
 
       const heroText = sb("hero-text");
       if (heroText) tl.to(heroText, { autoAlpha: 0, y: -50, duration: 0.3, ease: "power1.in" }, 0);
 
-      // Веер: выходит из статичного "сложенного" ракурса (scaleX сжат,
-      // см. исходный transform в globals.css) вперёд и в центр, scaleX
-      // распускается до 1 — читается как раскрытие, без покадровой
-      // анимации пластин (сам ассет — фотография, не вектор).
-      tl.to(fan, { ...at(fan, 50, 36), rotation: -6, scale: 1.05, duration: 0.55, ease: "power2.out" }, 0.12)
-        .to(fan, { ...at(fan, 32, 44), rotation: 4, scale: 0.9, duration: 0.35 }, 0.68)
-        .to(fan, { opacity: 0.65, duration: 0.3 }, 0.72);
-
-      // Кастаньеты пересекают передний план слева направо по нижней трети.
-      tl.to(castanets, { ...at(castanets, 16, 62), rotation: 8, scale: 1.15, duration: 0.45, ease: "power2.out" }, 0.1)
-        .to(castanets, { ...at(castanets, 112, 86), rotation: 120, scale: 0.8, duration: 0.45, ease: "power2.in" }, 0.55);
-
-      petals.forEach((petal, i) => {
-        const p = PETALS[i];
-        const start = 0.2 + i * 0.05;
-        tl.to(petal, { opacity: 1, scale: 1, duration: 0.15 }, start)
-          .to(petal, { ...at(petal, p.to[0], p.to[1]), rotation: p.spin, filter: `blur(${p.blur}px)`, duration: 0.85, ease: "power1.out" }, start)
-          .to(petal, { opacity: 0, duration: 0.25 }, start + 0.65);
-      });
-
-      reveal(sb("about-heading"), { y: 40 }, 0.72);
-      reveal(sb("about-intro"), { y: 30 }, 0.78);
+      // Панель «Почему мы?» в обычном потоке страницы (не анимируется
+      // целиком) въезжает в кадр заметно раньше, чем раньше стартовал
+      // текст внутри неё (0.72) — отсюда была пустая плитка на пол-экрана.
+      // Сдвинуто раньше, чтобы текст появлялся почти сразу, как заголовок
+      // панели показывается на экране.
+      reveal(sb("about-heading"), { y: 40 }, 0.42);
+      reveal(sb("about-intro"), { y: 30 }, 0.5);
       root.querySelectorAll<HTMLElement>('[data-sb="about-tile"]').forEach((tile, i) => {
-        reveal(tile, { y: 50, scale: 0.88 }, 0.8 + i * 0.05, 0.2);
+        reveal(tile, { y: 50, scale: 0.88 }, 0.58 + i * 0.05, 0.25);
       });
 
       // ---------- Сцена 2 → 3: Directions ----------
-      tl.to(fan, { ...at(fan, 15, 60), rotation: -14, scale: 0.78, opacity: 0.8, duration: 1 }, 1)
-        .to(toneGlow, { "--glow-x": "15%", "--glow-y": "62%", "--tone-hue": "-8deg", duration: 1 }, 1)
-        .to(castanets, { ...at(castanets, 84, 26), rotation: -18, scale: 0.6, duration: 0.5, ease: "power2.out" }, 1.45)
-        .to(castanets, { ...at(castanets, 114, 72), rotation: -80, scale: 0.5, duration: 0.5, ease: "power2.in" }, 2.1);
       reveal(sb("directions-heading"), { y: 40 }, 1.55);
       reveal(sb("directions-stage"), { y: 60, scale: 0.92, rotateX: 8 }, 1.6, 0.4);
 
       // ---------- Сцена 3 → 4: Schedule ----------
-      tl.to(fan, { ...at(fan, 85, 42), rotation: 16, scale: 0.6, opacity: 0.65, duration: 1 }, 2)
-        .to(toneGlow, { "--glow-x": "85%", "--glow-y": "40%", "--tone-hue": "6deg", duration: 1 }, 2)
-        .to(rose, { ...at(rose, 10, 30), rotation: 14, scale: 1, duration: 0.7, ease: "power2.out" }, 2.25);
       reveal(sb("schedule-heading"), { y: 40 }, 2.55);
       reveal(sb("schedule-stage"), { y: 70 }, 2.6, 0.4);
 
-      // ---------- Сцена 4 → 5: снова тёмная сцена — "после танца":
-      // веер складывается (scaleX сжимается) и опускается, роза ложится
-      // рядом. Больше некуда "вручать" реквизит (второй танцовщицы нет),
-      // поэтому сцена — не передача объекта, а естественное завершение. ----------
+      // ---------- Сцена 4 → 5: снова тёмная сцена — "после танца" ----------
       tl.to(tone, { opacity: 0, duration: 0.5 }, 3.3)
-        .to(spot, { "--spot-x": "60%", "--spot-y": "55%", "--spot-r": "60%", "--spot-color": "rgba(190, 28, 52, 0.5)", duration: 0.6 }, 3.2)
-        .to(haze, { opacity: 0.4, scale: 1.1, xPercent: 3, rotation: -2, duration: 0.8 }, 3.2)
-        // scaleX/scaleY явно (не шорткат scale) — ниже отдельный tween
-        // продолжает анимировать именно scaleX ("складывание"), и шорткат
-        // scale на пересекающемся отрезке времени переписывал бы его же
-        // scaleX своим собственным выводом при каждом рендере таймлайна.
-        .to(fan, { ...at(fan, 52, 78), rotation: -4, scaleX: 0.7, scaleY: 0.7, duration: 0.6, ease: "power2.out" }, 3.3)
-        .to(fan, { scaleX: 0.3, duration: 0.5, ease: "power2.in" }, 3.5)
-        .to(fan, { opacity: 0.85, duration: 0.3 }, 3.3)
-        .to(rose, { ...at(rose, 62, 82), rotation: -20, scale: 0.55, duration: 0.6, ease: "power2.out" }, 3.35);
+        .to(spot, { "--spot-x": "60%", "--spot-y": "55%", "--spot-r": "60%", "--spot-color": "rgba(190, 28, 52, 0.5)", duration: 0.6 }, 3.2);
       reveal(sb("cta-heading"), { y: 30 }, 3.5);
       reveal(sb("cta-button"), { scale: 0.7 }, 3.58);
       reveal(sb("cta-contacts"), { y: 50 }, 3.62);

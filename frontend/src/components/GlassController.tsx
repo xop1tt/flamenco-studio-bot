@@ -22,7 +22,10 @@ const HEADER_DENSITY_DISTANCE = 240;
 const HEADER_COLLAPSE_RANGE = 140;
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
-const SPECULAR_SELECTOR = ".glass-interactive, .glass-specular";
+// Блик под курсором убран на интерактивных элементах (кнопки, nav, —
+// .glass-interactive) по запросу; на некликабельных карточках
+// (.glass-specular — ScheduleCard/PackagesGrid) он остался.
+const SPECULAR_SELECTOR = ".glass-specular";
 
 /**
  * Единственный источник "живых" параметров glass-материала и шапки,
@@ -36,8 +39,9 @@ const SPECULAR_SELECTOR = ".glass-interactive, .glass-specular";
  *    обновляются на каждый тик скролла — никакого play()/reverse() и
  *    никакого состояния, зависящего от истории жеста.
  * 2. Pointer — один pointermove на document + один rAF: двигает --mx/--my
- *    только у того glass-элемента, что сейчас под курсором. Только мышь и
- *    только без prefers-reduced-motion; на touch блика нет вовсе (CSS).
+ *    только у .glass-specular карточки под курсором (на кнопках/навигации
+ *    блик убран — см. SPECULAR_SELECTOR). Только мышь и только без
+ *    prefers-reduced-motion; на touch блика нет вовсе (CSS).
  *
  * Ничего не рендерит.
  */
