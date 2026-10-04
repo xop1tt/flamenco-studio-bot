@@ -12,6 +12,7 @@ from .runtime.bot_logging import (
     UpdateMetrics,
     configure_logging,
 )
+from .healthcheck import heartbeat_path_from_env, write_heartbeat
 from .runtime.monitoring import monitor_health
 from .runtime.payment_reconciliation import start_reconciliation_task
 from .runtime.security import SecurityMiddleware, SupportRateLimiter
@@ -111,6 +112,7 @@ async def main():
         dp.include_router(router)
 
         await repository.initialize()
+        heartbeat_path = heartbeat_path_from_env()
         lifecycle.restart_store = repository
         await lifecycle.restore_scheduled_restart()
         await register_commands(bot, repository, logger)
@@ -120,6 +122,7 @@ async def main():
                     repository,
                     update_metrics,
                     logger,
+                    heartbeat_path=heartbeat_path,
                 )
             )
         ]
@@ -148,6 +151,9 @@ async def main():
                     ),
                 ]
             )
+        # Первый heartbeat — запуск завершён (БД, миграции, команды); дальше
+        # его обновляет monitor_health после каждой проверки БД.
+        write_heartbeat(heartbeat_path)
         logger.info("Bot polling started")
         lifecycle.polling_started = True
         await dp.start_polling(bot, tasks_concurrency_limit=64)

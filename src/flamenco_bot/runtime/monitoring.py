@@ -1,7 +1,9 @@
 import asyncio
 import logging
-from typing import Awaitable, Callable, Protocol
+from pathlib import Path
+from typing import Awaitable, Callable, Optional, Protocol
 
+from ..healthcheck import write_heartbeat
 from .bot_logging import UpdateMetrics
 from ..database.repository import DatabaseHealth
 
@@ -17,6 +19,7 @@ async def monitor_health(
     interval_seconds: float = 60.0,
     probe_timeout_seconds: float = 5.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    heartbeat_path: Optional[Path] = None,
 ) -> None:
     if interval_seconds <= 0 or probe_timeout_seconds <= 0:
         raise ValueError("Интервалы мониторинга должны быть положительными")
@@ -28,6 +31,7 @@ async def monitor_health(
                 repository.health_check(),
                 timeout=probe_timeout_seconds,
             )
+            write_heartbeat(heartbeat_path)
             updates = update_metrics.snapshot()
             logger.info(
                 "Health status=ok backend=%s pool_size=%d "

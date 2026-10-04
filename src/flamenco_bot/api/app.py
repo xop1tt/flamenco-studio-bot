@@ -27,6 +27,7 @@ from ..runtime.payment_reconciliation import start_reconciliation_task
 from ..runtime.security import AuthRateLimiter, SupportRateLimiter
 from ..services import AuthService, PaymentService
 from .config import WebConfig
+from .logging_config import configure_api_logging
 from .routers.auth import router as auth_router
 from .routers.bookings import router as bookings_router
 from .routers.classes import router as classes_router
@@ -42,6 +43,7 @@ logger = logging.getLogger("bot.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_api_logging()
     if WebConfig.ENV == "production" and not is_database_configured(
         WebConfig.DATABASE_URL
     ):
