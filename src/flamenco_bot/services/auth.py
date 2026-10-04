@@ -196,7 +196,9 @@ class AuthService:
             telegram_id, display_name
         )
         logger.info("Telegram login succeeded user_id=%s", user.id)
-        return user
+        # Перечитываем: имя участника — из профиля бота (его могли изменить
+        # в боте после первого входа), а не из payload виджета.
+        return await self.repository.get_web_user_by_id(user.id) or user
 
     async def link_telegram(
         self,

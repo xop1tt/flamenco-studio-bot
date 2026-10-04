@@ -11,11 +11,13 @@ import os
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 
+from flamenco_bot.database import repository as repository_module
 from flamenco_bot.database.repository import (
+    BookingCooldownError,
     PostgresRepository,
     SlotUnavailableError,
     TelegramAlreadyLinkedError,
@@ -189,6 +191,45 @@ class DomainPostgresTests(unittest.IsolatedAsyncioTestCase):
         # 22:30 UTC — это уже следующие сутки по Москве.
         self.assertTrue(shown[1].endswith("{} · 01:30".format(next_day)))
         self.assertNotEqual(next_day, late.strftime("%d.%m"))
+
+    # Кулдаун повторной записи — одно значение для Python-проверки и SQL.
+    async def test_rebook_cooldown_has_single_source(self):
+        await self._user(500, 2)
+        slot = await self._slot()
+        await self.repo.book_class_slot(slot.id, 500)
+        await self.repo.cancel_class_slot_booking(slot.id, 500)
+        with self.assertRaises(BookingCooldownError):
+            await self.repo.book_class_slot(slot.id, 500)
+
+        # Если бы SQL держал свой литерал «12 hours», запись при нулевом
+        # кулдауне упала бы на ON CONFLICT ... WHERE (SlotUnavailableError).
+        with patch.object(repository_module, "BOOKING_REBOOK_COOLDOWN", timedelta(0)):
+            booking = await self.repo.book_class_slot(slot.id, 500)
+        self.assertFalse(booking.already_booked)
+        self.assertEqual(await self.repo.get_lesson_credits(500), 1)
+
+    # Имя участника — из профиля бота и на сайте.
+    async def test_web_account_shows_profile_name_from_bot(self):
+        auth = AuthService(self.repo, BOT_TOKEN)
+        user = await auth.login_with_telegram(signed_payload(600))
+        self.assertEqual(user.display_name, "Анна")
+
+        await self.repo.update_user_name(600, "Анна Петрова")  # «Изменить имя» в боте
+
+        self.assertEqual(
+            (await self.repo.get_web_user_by_id(user.id)).display_name, "Анна Петрова"
+        )
+        self.assertEqual(
+            (await self.repo.get_web_user_by_telegram_id(600)).display_name,
+            "Анна Петрова",
+        )
+        again = await auth.login_with_telegram(signed_payload(600))
+        self.assertEqual(again.display_name, "Анна Петрова")
+
+        email_only = await auth.register_with_email("e@example.com", "long-pass", "Ева")
+        self.assertEqual(
+            (await self.repo.get_web_user_by_id(email_only.id)).display_name, "Ева"
+        )
 
     # 6. Токен веб-сессии не хранится в открытом виде.
     async def test_session_token_is_stored_only_as_sha256(self):

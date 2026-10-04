@@ -6,7 +6,7 @@ import socket
 import ssl
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import ceil
 from pathlib import Path
@@ -364,6 +364,18 @@ class WebUserRecord:
             display_name=record["display_name"],
             created_at=record["created_at"],
         )
+
+
+# Имя участника — одно: bot_users.user_name (его меняют и бот, и сайт через
+# PATCH /api/users/me/profile). users.display_name — лишь имя на момент
+# создания веб-аккаунта; используется, только пока Telegram не привязан.
+_WEB_USER_SELECT = """
+    SELECT account.id, account.email, account.password_hash, account.telegram_id,
+           COALESCE(profile.user_name, account.display_name) AS display_name,
+           account.created_at
+    FROM users AS account
+    LEFT JOIN bot_users AS profile ON profile.telegram_id = account.telegram_id
+"""
 
 
 class EmailAlreadyRegisteredError(ValueError):
@@ -1207,10 +1219,7 @@ class PostgresRepository:
     async def get_web_user_by_id(self, user_id: int) -> Optional[WebUserRecord]:
         async with self._pool.acquire() as connection:
             record = await connection.fetchrow(
-                """
-                SELECT id, email, password_hash, telegram_id, display_name, created_at
-                FROM users WHERE id = $1
-                """,
+                _WEB_USER_SELECT + "WHERE account.id = $1",
                 user_id,
             )
         return WebUserRecord.from_record(record) if record is not None else None
@@ -1263,10 +1272,7 @@ class PostgresRepository:
     async def get_web_user_by_email(self, email: str) -> Optional[WebUserRecord]:
         async with self._pool.acquire() as connection:
             record = await connection.fetchrow(
-                """
-                SELECT id, email, password_hash, telegram_id, display_name, created_at
-                FROM users WHERE LOWER(email) = LOWER($1)
-                """,
+                _WEB_USER_SELECT + "WHERE LOWER(account.email) = LOWER($1)",
                 email,
             )
         return WebUserRecord.from_record(record) if record is not None else None
@@ -1277,10 +1283,7 @@ class PostgresRepository:
     ) -> Optional[WebUserRecord]:
         async with self._pool.acquire() as connection:
             record = await connection.fetchrow(
-                """
-                SELECT id, email, password_hash, telegram_id, display_name, created_at
-                FROM users WHERE telegram_id = $1
-                """,
+                _WEB_USER_SELECT + "WHERE account.telegram_id = $1",
                 telegram_id,
             )
         return WebUserRecord.from_record(record) if record is not None else None
@@ -1577,12 +1580,13 @@ class PostgresRepository:
                     DO UPDATE SET status = 'confirmed', booked_at = NOW(),
                                   updated_at = NOW()
                     WHERE lesson_bookings.status = 'cancelled'
-                          AND lesson_bookings.updated_at
-                              <= NOW() - INTERVAL '12 hours'
+                          AND lesson_bookings.updated_at <= NOW() - $3::INTERVAL
                     RETURNING id
                     """,
                     slot_id,
                     telegram_id,
+                    # Та же константа, что в проверке выше — правило в одном месте.
+                    BOOKING_REBOOK_COOLDOWN,
                 )
                 if booking is None:
                     raise SlotUnavailableError("Не удалось подтвердить место")
@@ -3177,8 +3181,16 @@ class InMemoryRepository:
         self._next_web_user_id += 1
         return user
 
+    def _with_profile_name(
+        self, user: Optional[WebUserRecord]
+    ) -> Optional[WebUserRecord]:
+        """Как _WEB_USER_SELECT у PostgreSQL: имя — из профиля бота."""
+        if user is None or user.telegram_id not in self._profiles:
+            return user
+        return replace(user, display_name=self._profiles[user.telegram_id].user_name)
+
     async def get_web_user_by_id(self, user_id: int) -> Optional[WebUserRecord]:
-        return self._web_users.get(user_id)
+        return self._with_profile_name(self._web_users.get(user_id))
 
     async def create_web_session(
         self,
@@ -3210,7 +3222,7 @@ class InMemoryRepository:
         normalized_email = email.lower()
         for user in self._web_users.values():
             if user.email is not None and user.email.lower() == normalized_email:
-                return user
+                return self._with_profile_name(user)
         return None
 
     async def get_web_user_by_telegram_id(
@@ -3219,7 +3231,7 @@ class InMemoryRepository:
     ) -> Optional[WebUserRecord]:
         for user in self._web_users.values():
             if user.telegram_id == telegram_id:
-                return user
+                return self._with_profile_name(user)
         return None
 
     async def set_web_user_telegram_id(

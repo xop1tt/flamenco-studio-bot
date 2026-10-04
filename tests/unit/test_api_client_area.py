@@ -204,6 +204,14 @@ class ClientAreaApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user_name"], "Новое имя")
 
+    def test_renamed_profile_is_the_name_of_the_web_account(self):
+        """Единое имя: /api/auth/me показывает имя профиля, а не виджета."""
+        self._login_with_telegram(telegram_id=655)
+        self.client.patch("/api/users/me/profile", json={"user_name": "Новое имя"})
+        self.assertEqual(
+            self.client.get("/api/auth/me").json()["display_name"], "Новое имя"
+        )
+
     def test_profile_name_update_rejects_empty_value(self):
         self._login_with_telegram(telegram_id=987)
         response = self.client.patch("/api/users/me/profile", json={"user_name": ""})
