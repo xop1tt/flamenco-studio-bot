@@ -209,6 +209,28 @@ class ClientAreaApiTests(unittest.TestCase):
         response = self.client.patch("/api/users/me/profile", json={"user_name": ""})
         self.assertEqual(response.status_code, 422)
 
+    def test_profile_name_follows_the_same_rule_as_the_bot(self):
+        """strip + 1–64 символа — services.profile.normalize_user_name."""
+        self._login_with_telegram(telegram_id=988)
+        for rejected in ("   ", "я" * 65):
+            with self.subTest(user_name=rejected):
+                response = self.client.patch(
+                    "/api/users/me/profile", json={"user_name": rejected}
+                )
+                self.assertEqual(response.status_code, 422)
+
+        response = self.client.patch(
+            "/api/users/me/profile", json={"user_name": "  Анна  "}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_name"], "Анна")
+
+        long_name_with_spaces = " " + "я" * 64 + " "
+        response = self.client.patch(
+            "/api/users/me/profile", json={"user_name": long_name_with_spaces}
+        )
+        self.assertEqual(response.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

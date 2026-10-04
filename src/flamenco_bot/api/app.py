@@ -5,17 +5,27 @@
 бизнес-логики — см. ``CLAUDE.md``, принцип "один backend, одна БД".
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from aiogram import Bot
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 
-from ..database import InMemoryRepository, PostgresRepository, is_database_configured
+from ..database import (
+    InMemoryRepository,
+    PostgresRepository,
+    is_database_configured,
+    is_database_unavailable,
+)
+from ..database.errors import DATABASE_UNAVAILABLE_ERRORS
 from ..payments import YooKassaClient
+from ..keyboards.user.screens import payment_confirmed_notifier
+from ..runtime.payment_reconciliation import start_reconciliation_task
 from ..runtime.security import AuthRateLimiter, SupportRateLimiter
-from ..services import AuthService
+from ..services import AuthService, PaymentService
 from .config import WebConfig
 from .routers.auth import router as auth_router
 from .routers.bookings import router as bookings_router
@@ -76,15 +86,76 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.support_limiter = SupportRateLimiter()
     app.state.auth_limiter = AuthRateLimiter()
     app.state.payment_gateway = payment_gateway
+
+    # Фоновая сверка "забытых" платежей — та же задача, что в боте
+    # (main.py), чтобы оплата зачислялась и при остановленном боте. Сверку
+    # в каждый момент выполняет один процесс (advisory-блокировка, см.
+    # runtime/payment_reconciliation.py). Шлюз — с return_url бота: сверка
+    # только запрашивает статус платежа, return_url ей не нужен, а
+    # WEB_YOOKASSA_RETURN_URL может быть ещё не задан.
+    reconciliation_gateway = YooKassaClient(
+        WebConfig.YOOKASSA_SHOP_ID,
+        WebConfig.YOOKASSA_SECRET_KEY,
+        WebConfig.YOOKASSA_RETURN_URL,
+    )
+    reconciliation_task = start_reconciliation_task(
+        PaymentService(repository, reconciliation_gateway),
+        repository,
+        logger,
+        on_confirmed=payment_confirmed_notifier(bot, repository),
+    )
+    app.state.reconciliation_task = reconciliation_task
     try:
         yield
     finally:
+        if reconciliation_task is not None:
+            reconciliation_task.cancel()
+            await asyncio.gather(reconciliation_task, return_exceptions=True)
         await bot.session.close()
         await repository.close()
 
 
+DATABASE_UNAVAILABLE_DETAIL = "Database temporarily unavailable"
+
+
+async def database_unavailable_handler(
+    request: Request, error: Exception
+) -> JSONResponse:
+    """503 вместо 500, когда PostgreSQL недоступна.
+
+    Сайт отличает "сервис временно недоступен" от пустых данных именно по
+    статусу. Подробности (тип ошибки, traceback) — только в логах сервера,
+    в ответе нет ни SQL, ни адреса БД.
+    """
+    if not is_database_unavailable(error):
+        # Обычный OSError/таймаут не из БД — пусть обработается как 500.
+        raise error
+    logger.error(
+        "Database unavailable method=%s path=%s error_type=%s",
+        request.method,
+        request.url.path,
+        type(error).__name__,
+        exc_info=error,
+    )
+    return JSONResponse(
+        {"detail": DATABASE_UNAVAILABLE_DETAIL},
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+async def internal_error_handler(request: Request, error: Exception) -> JSONResponse:
+    # Traceback уже пишет сервер (uvicorn); клиенту — только общий JSON.
+    return JSONResponse(
+        {"detail": "Internal Server Error"},
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Flamenco Studio API", lifespan=lifespan)
+    for error_type in (*DATABASE_UNAVAILABLE_ERRORS, OSError):
+        app.add_exception_handler(error_type, database_unavailable_handler)
+    app.add_exception_handler(Exception, internal_error_handler)
     app.include_router(auth_router)
     app.include_router(schedule_router)
     app.include_router(classes_router)

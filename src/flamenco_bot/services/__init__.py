@@ -15,6 +15,11 @@ from .auth import (
 )
 from .booking import BookingService
 from .notifications import AdminNotifier, NotificationReport
+from .profile import (
+    MAX_USER_NAME_LENGTH,
+    InvalidUserNameError,
+    normalize_user_name,
+)
 from .payments import (
     CheckoutFailedError,
     CheckoutResult,
@@ -43,6 +48,8 @@ __all__ = [
     "EmailAlreadyRegisteredError",
     "InvalidCredentialsError",
     "InvalidTelegramAuthError",
+    "InvalidUserNameError",
+    "MAX_USER_NAME_LENGTH",
     "NotificationReport",
     "PaymentCheckResult",
     "PaymentCheckStatus",
@@ -55,4 +62,5 @@ __all__ = [
     "SupportSubmission",
     "TelegramAlreadyLinkedError",
     "WeakPasswordError",
+    "normalize_user_name",
 ]

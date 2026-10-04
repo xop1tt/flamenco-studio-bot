@@ -6,14 +6,33 @@
 либо админ. Если пользователь оплатил и не вернулся, платёж остаётся
 "pending" в нашей БД сколько угодно долго, даже если ЮKassa его уже провела.
 Эта задача периодически делает ту же проверку сама за "забытые" платежи.
+
+Задачу запускают и бот, и веб-API — чтобы сверка не зависела от того,
+какой из процессов сейчас работает. Каждую итерацию выполняет только тот,
+кто взял advisory-блокировку ``RECONCILIATION_LOCK_ID`` в PostgreSQL;
+второй процесс эту итерацию пропускает. Двойного зачисления не будет и без
+блокировки (``complete_lesson_payment`` зачисляет ровно один раз и только
+этот вызов получает CONFIRMED), блокировка убирает лишние запросы к ЮKassa.
 """
 
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional, Protocol, Sequence
+from typing import (
+    Any,
+    AsyncContextManager,
+    Awaitable,
+    Callable,
+    Optional,
+    Protocol,
+    Sequence,
+)
 
 from ..services.payments import PaymentCheckResult, PaymentCheckStatus, PaymentService
+
+
+# Рядом с MIGRATION_LOCK_ID (715_203_401) в database/repository.py.
+RECONCILIATION_LOCK_ID = 715_203_402
 
 
 class PendingPaymentRecord(Protocol):
@@ -34,6 +53,8 @@ class PaymentReconciliationRepository(Protocol):
         cutoff: datetime,
     ) -> Sequence[PendingPaymentRecord]: ...
 
+    def try_advisory_lock(self, lock_id: int) -> AsyncContextManager[bool]: ...
+
 
 async def reconcile_pending_payments(
     payment_service: PaymentService,
@@ -50,15 +71,38 @@ async def reconcile_pending_payments(
 
     while True:
         await sleep(interval_seconds)
-        cutoff = clock() - timedelta(seconds=stale_after_seconds)
         try:
-            pending = await repository.list_pending_lesson_payments_older_than(cutoff)
+            async with repository.try_advisory_lock(RECONCILIATION_LOCK_ID) as locked:
+                if not locked:
+                    logger.info("Payment reconciliation skipped: running elsewhere")
+                    continue
+                await _reconcile_stale_payments(
+                    payment_service,
+                    repository,
+                    logger,
+                    clock() - timedelta(seconds=stale_after_seconds),
+                    on_confirmed,
+                )
         except Exception:
-            logger.exception("Failed to list pending payments for reconciliation")
-            continue
+            # Например, БД недоступна: следующая итерация попробует снова.
+            logger.exception("Payment reconciliation iteration failed")
 
-        for record in pending:
-            await _reconcile_one(payment_service, record, logger, on_confirmed)
+
+async def _reconcile_stale_payments(
+    payment_service: PaymentService,
+    repository: PaymentReconciliationRepository,
+    logger: logging.Logger,
+    cutoff: datetime,
+    on_confirmed: Optional[ConfirmedCallback],
+) -> None:
+    try:
+        pending = await repository.list_pending_lesson_payments_older_than(cutoff)
+    except Exception:
+        logger.exception("Failed to list pending payments for reconciliation")
+        return
+
+    for record in pending:
+        await _reconcile_one(payment_service, record, logger, on_confirmed)
 
 
 async def _reconcile_one(

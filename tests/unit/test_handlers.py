@@ -64,11 +64,11 @@ from flamenco_bot.keyboards.user.main_menu import (
     show_about,
     show_main_menu,
 )
+from flamenco_bot.keyboards.user.screens import payment_confirmed_notifier
 from flamenco_bot.keyboards.user.purchases import (
     check_lesson_payment,
     legacy_purchase_confirmation,
     pay_for_package,
-    payment_confirmed_notifier,
     show_bill,
     show_package,
     show_packages,
@@ -349,7 +349,12 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         await save_name(self.message, self.state, self.repository)
         self.repository.update_user_name.assert_not_awaited()
 
-        self.message.text = "Новое имя"
+        self.message.text = "я" * 65
+        await save_name(self.message, self.state, self.repository)
+        self.repository.update_user_name.assert_not_awaited()
+        self.assertIn("от 1 до 64 символов", self.message.last_answer.args[0])
+
+        self.message.text = "  Новое имя  "
         await save_name(self.message, self.state, self.repository)
         self.repository.update_user_name.assert_awaited_once_with(1001, "Новое имя")
         self.assertIn("Имя сохранено", self.message.last_answer.args[0])

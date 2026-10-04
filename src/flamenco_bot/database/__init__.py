@@ -1,3 +1,4 @@
+from .errors import is_database_unavailable
 from .repository import (
     EmailAlreadyRegisteredError,
     InMemoryRepository,
@@ -20,4 +21,5 @@ __all__ = [
     "UserProfile",
     "WebUserRecord",
     "is_database_configured",
+    "is_database_unavailable",
 ]

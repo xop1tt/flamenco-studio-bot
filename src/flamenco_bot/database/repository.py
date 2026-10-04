@@ -4,11 +4,12 @@ import ipaddress
 import socket
 import ssl
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import ceil
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Dict, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 import asyncpg
@@ -504,6 +505,33 @@ class PostgresRepository:
             pool_size=self._pool.get_size(),
             idle_connections=self._pool.get_idle_size(),
         )
+
+    @asynccontextmanager
+    async def try_advisory_lock(self, lock_id: int) -> AsyncIterator[bool]:
+        """Неблокирующая сессионная advisory-блокировка на время блока.
+
+        Отдаёт ``False``, если её уже держит другой процесс (бот или API) —
+        так фоновую задачу выполняет только один экземпляр. Блокировка
+        привязана к соединению: при падении процесса PostgreSQL снимает её
+        сама.
+        """
+        async with self._pool.acquire() as connection:
+            acquired = await connection.fetchval(
+                "SELECT pg_try_advisory_lock($1)", lock_id
+            )
+            try:
+                yield bool(acquired)
+            finally:
+                if acquired:
+                    try:
+                        await connection.execute(
+                            "SELECT pg_advisory_unlock($1)", lock_id
+                        )
+                    except Exception:
+                        # Соединение с неснятой блокировкой нельзя вернуть
+                        # в пул — закрываем, и PostgreSQL снимет её сам.
+                        logger.exception("Failed to release advisory lock")
+                        connection.terminate()
 
     async def get_scheduled_restart(self) -> Optional[datetime]:
         async with self._pool.acquire() as connection:
@@ -2136,9 +2164,21 @@ class InMemoryRepository:
         self._web_users: Dict[int, WebUserRecord] = {}
         self._next_web_user_id = 1
         self._web_sessions: Dict[str, Tuple[int, datetime]] = {}
+        self._advisory_locks: set[int] = set()
 
     async def initialize(self) -> None:
         logger.warning("Using in-memory storage; data will be lost at shutdown")
+
+    @asynccontextmanager
+    async def try_advisory_lock(self, lock_id: int) -> AsyncIterator[bool]:
+        if lock_id in self._advisory_locks:
+            yield False
+            return
+        self._advisory_locks.add(lock_id)
+        try:
+            yield True
+        finally:
+            self._advisory_locks.discard(lock_id)
 
     async def close(self) -> None:
         logger.info("In-memory storage closed")

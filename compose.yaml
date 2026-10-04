@@ -46,6 +46,12 @@ services:
       DATABASE_SSL_MODE: verify-full
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
+      # Rate limit входа считает попытки по IP клиента. X-Forwarded-For
+      # принимается только от контейнера сайта (frontend) — он передаёт
+      # заголовок, который записал edge-прокси (docs/deployment.md). Один
+      # адрес, не "*" и не вся сеть. Должен совпадать с ipv4_address
+      # frontend в compose.yaml сайта.
+      FORWARDED_ALLOW_IPS: ${FLAMENCO_FRONTEND_IP:-10.89.250.10}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
     expose:
@@ -64,3 +70,10 @@ networks:
   # создаёт сеть.
   web:
     name: flamenco-web
+    # Фиксированная подсеть — чтобы у frontend был постоянный адрес, которому
+    # доверяет api (FORWARDED_ALLOW_IPS выше). Если подсеть пересекается с
+    # уже существующей на хосте, задайте FLAMENCO_WEB_SUBNET и
+    # FLAMENCO_FRONTEND_IP одинаково для обоих compose-проектов.
+    ipam:
+      config:
+        - subnet: ${FLAMENCO_WEB_SUBNET:-10.89.250.0/24}

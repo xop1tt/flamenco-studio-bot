@@ -26,7 +26,7 @@ from .database.repository import DatabaseUnavailableError
 from .payments import YooKassaClient
 from .services import PaymentService
 from .handlers import router
-from .keyboards.user.purchases import payment_confirmed_notifier
+from .keyboards.user.screens import payment_confirmed_notifier
 
 
 async def main():

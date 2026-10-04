@@ -239,30 +239,6 @@ async def next_step_markup(
     return notice, markup([button(BOOK_BUTTON, "slots:all")])
 
 
-def payment_confirmed_notifier(bot: Any, repository: Any):
-    """Сообщение пользователю, когда оплату зачла фоновая сверка."""
-
-    async def notify(telegram_id: int, result: Any) -> None:
-        credits = result.credits
-        if credits is None:
-            credits = await repository.get_lesson_credits(telegram_id)
-        lessons = result.payment.lessons if result.payment is not None else None
-        headline = (
-            "Оплата прошла. Зачислено {}. {}.".format(
-                lessons_count(lessons), balance_line(credits)
-            )
-            if lessons is not None
-            else "Оплата прошла. {}.".format(balance_line(credits))
-        )
-        await bot.send_message(
-            telegram_id,
-            headline,
-            reply_markup=markup([button(BOOK_BUTTON, "slots:all")]),
-        )
-
-    return notify
-
-
 @router.callback_query(F.data.startswith("lesson_payment_check:"))
 async def check_lesson_payment(
     callback: CallbackQuery,

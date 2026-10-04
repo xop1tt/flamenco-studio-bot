@@ -7,7 +7,7 @@
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..class_catalog import CLASS_LABELS
 from ..database.repository import (
@@ -22,7 +22,7 @@ from ..database.repository import (
     WebUserRecord,
 )
 from ..payments import LessonPackage
-from ..services import CheckoutResult, SupportSubmission
+from ..services import CheckoutResult, SupportSubmission, normalize_user_name
 
 
 class RegisterRequest(BaseModel):
@@ -254,7 +254,10 @@ class ProfileResponse(BaseModel):
 
 
 class UpdateProfileNameRequest(BaseModel):
-    user_name: str = Field(min_length=1, max_length=64)
+    user_name: str
+
+    # То же правило, что в боте (services.profile): strip + 1–64 символа.
+    _normalize_user_name = field_validator("user_name")(normalize_user_name)
 
 
 class CheckoutRequest(BaseModel):

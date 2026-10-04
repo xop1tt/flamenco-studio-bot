@@ -20,6 +20,7 @@ from . import (
 from .main_menu import ensure_profile
 from ...handlers.states import AccountForm
 from ...presentation import balance_line, website_line
+from ...services import InvalidUserNameError, normalize_user_name
 
 
 logger = logging.getLogger("bot.handlers.account")
@@ -217,16 +218,16 @@ async def save_name(
             reply_markup=profile_keyboard(),
         )
         return
-    user_name = (message.text or "").strip()
-    if not user_name or len(user_name) > 64:
+    try:
+        user_name = normalize_user_name(message.text or "")
+    except InvalidUserNameError as error:
         logger.warning(
             "Rejected profile name update telegram_id=%s length=%s",
             message.from_user.id if message.from_user else None,
-            len(user_name),
+            len((message.text or "").strip()),
         )
         await message.answer(
-            "Имя должно содержать от 1 до 64 символов. Введите имя ещё раз "
-            "или нажмите «❌ Отмена»."
+            "{}. Введите имя ещё раз или нажмите «❌ Отмена».".format(error)
         )
         return
     if sender is None:

@@ -2,6 +2,7 @@ from aiogram import Router
 
 from .admin import router as admin_router
 from .core import router as core_router
+from .errors import router as errors_router
 from .fallback import router as fallback_router
 from .support import router as support_router
 from ..keyboards.user.account import router as account_router
@@ -10,6 +11,7 @@ from ..keyboards.user.main_menu import router as main_menu_router
 from ..keyboards.user.purchases import router as purchases_router
 
 router = Router(name="bot")
+router.include_router(errors_router)
 router.include_router(core_router)
 router.include_router(main_menu_router)
 router.include_router(admin_router)

@@ -1,12 +1,16 @@
 """Фоновая сверка "забытых" pending-платежей (без вебхука ЮKassa)."""
 
+import asyncio
 import logging
 import unittest
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.runtime.payment_reconciliation import (
+    RECONCILIATION_LOCK_ID,
     reconcile_pending_payments,
     start_reconciliation_task,
 )
@@ -19,10 +23,24 @@ class _Record:
     telegram_id: int
 
 
+def _lock(acquired=True, calls=None):
+    """Подмена ``repository.try_advisory_lock`` для AsyncMock-репозитория."""
+
+    @asynccontextmanager
+    async def try_advisory_lock(lock_id):
+        if calls is not None:
+            calls.append(lock_id)
+        yield acquired
+
+    return try_advisory_lock
+
+
 class ReconcilePendingPaymentsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.logger = logging.getLogger("test.payment_reconciliation")
         self.repository = AsyncMock()
+        self.lock_calls = []
+        self.repository.try_advisory_lock = _lock(calls=self.lock_calls)
         self.payment_service = AsyncMock()
 
     async def _run_one_tick(self, **kwargs):
@@ -119,6 +137,37 @@ class ReconcilePendingPaymentsTests(unittest.IsolatedAsyncioTestCase):
 
         self.payment_service.check_payment.assert_not_awaited()
 
+    async def test_iteration_runs_under_reconciliation_lock(self):
+        self.repository.list_pending_lesson_payments_older_than.return_value = []
+
+        await self._run_one_tick()
+
+        self.assertEqual(self.lock_calls, [RECONCILIATION_LOCK_ID])
+
+    async def test_iteration_is_skipped_when_another_process_holds_the_lock(self):
+        """Бот и API запускают сверку оба — итерацию делает только один."""
+        self.repository.try_advisory_lock = _lock(acquired=False)
+        self.repository.list_pending_lesson_payments_older_than.return_value = [
+            _Record(id=1, telegram_id=100),
+        ]
+
+        await self._run_one_tick()
+
+        self.repository.list_pending_lesson_payments_older_than.assert_not_awaited()
+        self.payment_service.check_payment.assert_not_awaited()
+
+    async def test_lock_failure_is_logged_and_does_not_crash_the_loop(self):
+        @asynccontextmanager
+        async def unavailable(lock_id):
+            raise ConnectionRefusedError("БД недоступна")
+            yield  # pragma: no cover
+
+        self.repository.try_advisory_lock = unavailable
+
+        await self._run_one_tick()
+
+        self.payment_service.check_payment.assert_not_awaited()
+
     async def test_invalid_intervals_are_rejected(self):
         with self.assertRaises(ValueError):
             await reconcile_pending_payments(
@@ -127,6 +176,17 @@ class ReconcilePendingPaymentsTests(unittest.IsolatedAsyncioTestCase):
                 self.logger,
                 interval_seconds=0,
             )
+
+
+class InMemoryAdvisoryLockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lock_is_exclusive_until_released(self):
+        repository = InMemoryRepository()
+        async with repository.try_advisory_lock(RECONCILIATION_LOCK_ID) as first:
+            async with repository.try_advisory_lock(RECONCILIATION_LOCK_ID) as second:
+                self.assertTrue(first)
+                self.assertFalse(second)
+        async with repository.try_advisory_lock(RECONCILIATION_LOCK_ID) as again:
+            self.assertTrue(again)
 
 
 class StartReconciliationTaskTests(unittest.IsolatedAsyncioTestCase):
@@ -159,6 +219,40 @@ class StartReconciliationTaskTests(unittest.IsolatedAsyncioTestCase):
             task.cancel()
             with self.assertRaises(BaseException):
                 await task
+
+
+class ApiLifespanReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    """Сверка платежей идёт и в процессе веб-API — без работающего бота."""
+
+    async def test_api_starts_reconciliation_and_cancels_it_on_shutdown(self):
+        from flamenco_bot.api import app as app_module
+
+        started = {}
+
+        def fake_start(payment_service, repository, logger, on_confirmed=None):
+            started["service"] = payment_service
+            started["on_confirmed"] = on_confirmed
+            started["task"] = asyncio.create_task(asyncio.Event().wait())
+            return started["task"]
+
+        config = app_module.WebConfig
+        with (
+            patch.object(app_module, "start_reconciliation_task", fake_start),
+            patch.object(config, "DATABASE_URL", ""),
+            patch.object(config, "ENV", "development"),
+        ):
+            application = app_module.create_app()
+            async with app_module.lifespan(application):
+                self.assertIs(application.state.reconciliation_task, started["task"])
+                # Сверке нужен только статус платежа — return_url бота, а не
+                # WEB_YOOKASSA_RETURN_URL, который может быть ещё не задан.
+                self.assertEqual(
+                    started["service"].gateway.return_url,
+                    config.YOOKASSA_RETURN_URL,
+                )
+                self.assertIsNotNone(started["on_confirmed"])
+
+        self.assertTrue(started["task"].cancelled())
 
 
 if __name__ == "__main__":

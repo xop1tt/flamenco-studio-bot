@@ -35,7 +35,12 @@ from ..keyboards.common import CANCEL, MAIN_MENU
 from ..keyboards.user import main_menu_keyboard
 from ..runtime.runtime_resources import get_process_resources
 from ..payments import YooKassaClient
-from ..services import PaymentService, RefundStatus
+from ..services import (
+    InvalidUserNameError,
+    PaymentService,
+    RefundStatus,
+    normalize_user_name,
+)
 from ..class_catalog import CLASS_LABELS
 from ..database.repository import CLASS_KEYS
 from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
@@ -652,9 +657,10 @@ async def save_participant_name(
     if await _deny_non_admin(message, repository):
         await state.clear()
         return
-    user_name = (message.text or "").strip()
-    if not user_name or len(user_name) > 64:
-        await message.answer("Имя должно содержать от 1 до 64 символов.")
+    try:
+        user_name = normalize_user_name(message.text or "")
+    except InvalidUserNameError as error:
+        await message.answer("{}.".format(error))
         return
 
     form_data = await state.get_data()

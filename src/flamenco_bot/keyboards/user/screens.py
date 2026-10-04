@@ -355,3 +355,29 @@ def package_screen(
         ],
         [button(BACK, "packs:{}".format(slot_id))],
     )
+
+
+# Импортируется и веб-API (фоновая сверка платежей) — поэтому здесь, а не в
+# purchases.py: тот модуль тянет за собой роутеры бота.
+def payment_confirmed_notifier(bot: Any, repository: Any):
+    """Сообщение пользователю, когда оплату зачла фоновая сверка."""
+
+    async def notify(telegram_id: int, result: Any) -> None:
+        credits = result.credits
+        if credits is None:
+            credits = await repository.get_lesson_credits(telegram_id)
+        lessons = result.payment.lessons if result.payment is not None else None
+        headline = (
+            "Оплата прошла. Зачислено {}. {}.".format(
+                lessons_count(lessons), balance_line(credits)
+            )
+            if lessons is not None
+            else "Оплата прошла. {}.".format(balance_line(credits))
+        )
+        await bot.send_message(
+            telegram_id,
+            headline,
+            reply_markup=markup([button(BOOK_BUTTON, "slots:all")]),
+        )
+
+    return notify
