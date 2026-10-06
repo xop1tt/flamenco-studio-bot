@@ -46,6 +46,18 @@ def parse_database_pool_sizes(min_size: str, max_size: str) -> tuple[int, int]:
     return minimum, maximum
 
 
+def parse_credit_adjustment_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError as error:
+        raise ValueError(
+            "CREDIT_ADJUSTMENT_MAX_DELTA должен быть целым числом"
+        ) from error
+    if limit < 1:
+        raise ValueError("CREDIT_ADJUSTMENT_MAX_DELTA должен быть не меньше 1")
+    return limit
+
+
 def parse_studio_timezone(value: str) -> ZoneInfo:
     name = value.strip() or "Europe/Moscow"
     try:
@@ -106,6 +118,12 @@ class Config:
         "YOOKASSA_RETURN_URL",
         "https://t.me/",
     ).strip()
+
+    # Максимум занятий за одну ручную корректировку баланса (в любую сторону).
+    # Защита от опечатки администратора, а не бизнес-правило студии.
+    CREDIT_ADJUSTMENT_MAX_DELTA: int = parse_credit_adjustment_limit(
+        os.getenv("CREDIT_ADJUSTMENT_MAX_DELTA", "50")
+    )
 
     # Часовой пояс студии: в нём бот показывает время занятий, сроки отмены
     # и уведомления. Сайт читает ту же переменную (FLAMENCO WEBSITE,

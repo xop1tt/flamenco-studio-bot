@@ -14,6 +14,8 @@ BOT_RESTART_CONFIRM = "✅ Подтвердить перезапуск"
 BOT_RESTART_CANCEL = "↩️ Не перезапускать"
 BOT_SCHEDULE_RESTART = "🕒 Запланировать перезапуск"
 BOT_CANCEL_SCHEDULED_RESTART = "❌ Отменить запланированный перезапуск"
+CREDITS_ADJUST_CONFIRM = "✅ Применить корректировку"
+CREDITS_ADJUST_CANCEL = "↩️ Не применять"
 CLASS_SLOTS = "🗓 Слоты занятий"
 SUPPORT_TICKETS = "📨 Обращения поддержки"
 
@@ -53,3 +55,11 @@ def bot_restart_confirmation_keyboard() -> ReplyKeyboardMarkup:
 
 def bot_schedule_input_keyboard() -> ReplyKeyboardMarkup:
     return keyboard([CANCEL], [MAIN_MENU])
+
+
+def credit_adjustment_confirmation_keyboard() -> ReplyKeyboardMarkup:
+    return keyboard(
+        [CREDITS_ADJUST_CONFIRM],
+        [CREDITS_ADJUST_CANCEL],
+        [MAIN_MENU],
+    )

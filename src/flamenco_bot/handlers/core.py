@@ -43,6 +43,8 @@ ADMIN_HELP = (
     "/support_tickets — обращения поддержки\n"
     "/support_reply ID текст — ответить\n"
     "/support_close ID — закрыть обращение\n"
+    "/credits_adjust ID +N|-N причина — корректировка баланса\n"
+    "/credits_audit — сверка баланса с ledger\n"
     "/requests — список незакрытых заявок\n"
     "/done ID — закрыть заявку"
 )

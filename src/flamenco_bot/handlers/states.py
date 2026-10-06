@@ -26,3 +26,4 @@ class AdminForm(StatesGroup):
     waiting_for_phone_value = State()
     waiting_for_restart_confirmation = State()
     waiting_for_scheduled_restart = State()
+    waiting_for_credit_adjustment_confirmation = State()

@@ -339,6 +339,44 @@ class PendingLessonPayment:
 
 
 @dataclass(frozen=True)
+class CreditAdjustment:
+    """Результат ручной корректировки баланса занятий администратором."""
+
+    ledger_id: int
+    telegram_id: int
+    delta: int
+    balance: int
+    # False — операция с этим ключом идемпотентности уже была выполнена
+    # раньше; баланс при повторе не менялся.
+    applied: bool
+
+
+@dataclass(frozen=True)
+class CreditBalanceMismatch:
+    """Пользователь, у которого bot_users.lesson_credits != SUM(ledger.delta)."""
+
+    telegram_id: int
+    user_name: str
+    lesson_credits: int
+    ledger_total: int
+    ledger_entries: int
+    last_entry_at: Optional[datetime]
+
+    @property
+    def difference(self) -> int:
+        """Насколько баланс больше суммы ledger (отрицательное — меньше)."""
+        return self.lesson_credits - self.ledger_total
+
+
+@dataclass(frozen=True)
+class CreditReconciliation:
+    checked_users: int
+    # Всего расхождений; ``mismatches`` может содержать только первые limit.
+    mismatched_users: int
+    mismatches: Sequence[CreditBalanceMismatch]
+
+
+@dataclass(frozen=True)
 class WebUserRecord:
     """Веб-аккаунт сайта: вход по email/паролю и/или привязанный Telegram.
 
@@ -803,26 +841,13 @@ class PostgresRepository:
                 )
                 if record is None:
                     return False
-                await connection.execute(
-                    """
-                    INSERT INTO lesson_credit_ledger (
-                        telegram_id, payment_id, entry_type, delta, reference_key
-                    )
-                    VALUES ($1, $2, 'purchase', $3, $4)
-                    """,
+                await self._change_credits(
+                    connection,
                     telegram_id,
-                    payment_id,
                     record["lessons"],
+                    "purchase",
                     "payment:{}".format(payment_id),
-                )
-                await connection.execute(
-                    """
-                    UPDATE bot_users
-                    SET lesson_credits = lesson_credits + $2
-                    WHERE telegram_id = $1
-                    """,
-                    telegram_id,
-                    record["lessons"],
+                    payment_id=payment_id,
                 )
                 await connection.execute(
                     """
@@ -950,23 +975,13 @@ class PostgresRepository:
                     )
 
                 refund_key = uuid.uuid4()
-                await connection.execute(
-                    "UPDATE bot_users SET lesson_credits = lesson_credits - $2 "
-                    "WHERE telegram_id = $1",
+                await self._change_credits(
+                    connection,
                     payment["telegram_id"],
-                    payment["lessons"],
-                )
-                await connection.execute(
-                    """
-                    INSERT INTO lesson_credit_ledger (
-                        telegram_id, payment_id, entry_type, delta, reference_key
-                    )
-                    VALUES ($1, $2, 'refund_reservation', $3, $4)
-                    """,
-                    payment["telegram_id"],
-                    payment_id,
                     -payment["lessons"],
+                    "refund_reservation",
                     "refund-reservation:{}:{}".format(payment_id, refund_key),
+                    payment_id=payment_id,
                 )
                 await connection.execute(
                     """
@@ -1075,26 +1090,13 @@ class PostgresRepository:
                     """,
                     payment_id,
                 )
-                await connection.execute(
-                    """
-                    UPDATE bot_users
-                    SET lesson_credits = lesson_credits + $2
-                    WHERE telegram_id = $1
-                    """,
+                await self._change_credits(
+                    connection,
                     payment["telegram_id"],
                     payment["lessons"],
-                )
-                await connection.execute(
-                    """
-                    INSERT INTO lesson_credit_ledger (
-                        telegram_id, payment_id, entry_type, delta, reference_key
-                    )
-                    VALUES ($1, $2, 'refund_release', $3, $4)
-                    """,
-                    payment["telegram_id"],
-                    payment_id,
-                    payment["lessons"],
+                    "refund_release",
                     "refund-release:{}:{}".format(payment_id, uuid.uuid4()),
+                    payment_id=payment_id,
                 )
                 await connection.execute(
                     """
@@ -1108,6 +1110,213 @@ class PostgresRepository:
                 )
         logger.warning("Lesson refund reservation released payment_id=%s", payment_id)
         return True
+
+    @staticmethod
+    async def _change_credits(
+        connection: Any,
+        telegram_id: int,
+        delta: int,
+        entry_type: str,
+        reference_key: str,
+        *,
+        payment_id: Optional[int] = None,
+        actor_telegram_id: Optional[int] = None,
+        reason: Optional[str] = None,
+        insufficient_message: str = "На балансе недостаточно занятий",
+    ) -> Optional[Tuple[int, int]]:
+        """Единственное место, где меняется ``bot_users.lesson_credits``.
+
+        Пишет строку ledger и меняет баланс в одной транзакции вызывающего
+        (``connection`` обязан быть внутри ``connection.transaction()``):
+        баланс и ledger не могут разойтись, а баланс не может стать
+        отрицательным (``InsufficientLessonCreditsError``; тот же запрет
+        дублирует CHECK в БД). ``reference_key`` уникален: если операция с
+        таким ключом уже записана, возвращается ``None`` и баланс не
+        трогается — так повтор детерминированной операции (например,
+        ``payment:<id>``) идемпотентен. Иначе возвращает
+        ``(id строки ledger, новый баланс)``.
+        """
+        if delta == 0:
+            raise ValueError("Изменение баланса не может быть нулевым")
+        if not connection.is_in_transaction():
+            raise RuntimeError("Баланс занятий меняется только внутри транзакции")
+        try:
+            ledger_id = await connection.fetchval(
+                """
+                INSERT INTO lesson_credit_ledger (
+                    telegram_id, payment_id, entry_type, delta, reference_key,
+                    actor_telegram_id, reason
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (reference_key) DO NOTHING
+                RETURNING id
+                """,
+                telegram_id,
+                payment_id,
+                entry_type,
+                delta,
+                reference_key,
+                actor_telegram_id,
+                reason,
+            )
+        except asyncpg.ForeignKeyViolationError as error:
+            raise LookupError(
+                "Профиль не найден для Telegram ID {}".format(telegram_id)
+            ) from error
+        if ledger_id is None:
+            return None
+        balance = await connection.fetchval(
+            """
+            UPDATE bot_users
+            SET lesson_credits = lesson_credits + $2
+            WHERE telegram_id = $1 AND lesson_credits + $2 >= 0
+            RETURNING lesson_credits
+            """,
+            telegram_id,
+            delta,
+        )
+        if balance is None:
+            # Профиль точно есть (внешний ключ ledger выше его проверил):
+            # значит, не хватило занятий. Исключение откатывает и строку ledger.
+            raise InsufficientLessonCreditsError(insufficient_message)
+        return ledger_id, balance
+
+    async def adjust_lesson_credits(
+        self,
+        telegram_id: int,
+        delta: int,
+        reason: str,
+        actor_telegram_id: int,
+        idempotence_key: uuid.UUID,
+    ) -> CreditAdjustment:
+        """Ручная корректировка баланса администратором.
+
+        ``PermissionError`` — ``actor_telegram_id`` не администратор;
+        ``LookupError`` — нет профиля; ``InsufficientLessonCreditsError`` —
+        списание увело бы баланс ниже нуля; ``ValueError`` — пустая или
+        слишком длинная причина, нулевой delta либо ключ идемпотентности уже
+        использован для другой операции. Повтор с тем же ключом баланс не
+        меняет и возвращает прежний результат с ``applied=False``.
+        """
+        normalized_reason = reason.strip()
+        if not normalized_reason or len(normalized_reason) > 300:
+            raise ValueError("Причина должна содержать от 1 до 300 символов")
+        if delta == 0:
+            raise ValueError("Изменение баланса не может быть нулевым")
+        reference_key = "admin-adjustment:{}".format(idempotence_key)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                is_admin = await connection.fetchval(
+                    "SELECT is_admin FROM bot_users WHERE telegram_id = $1",
+                    actor_telegram_id,
+                )
+                if not is_admin:
+                    raise PermissionError("Корректировку может выполнить только админ")
+                changed = await self._change_credits(
+                    connection,
+                    telegram_id,
+                    delta,
+                    "admin_adjustment",
+                    reference_key,
+                    actor_telegram_id=actor_telegram_id,
+                    reason=normalized_reason,
+                    insufficient_message=(
+                        "Баланс не может стать отрицательным: у участника "
+                        "недостаточно занятий"
+                    ),
+                )
+                if changed is not None:
+                    ledger_id, balance = changed
+                    applied = True
+                else:
+                    previous = await connection.fetchrow(
+                        """
+                        SELECT id, telegram_id, delta FROM lesson_credit_ledger
+                        WHERE reference_key = $1
+                        """,
+                        reference_key,
+                    )
+                    if (
+                        previous["telegram_id"] != telegram_id
+                        or previous["delta"] != delta
+                    ):
+                        raise ValueError(
+                            "Ключ идемпотентности уже использован для другой "
+                            "корректировки"
+                        )
+                    ledger_id = previous["id"]
+                    balance = await connection.fetchval(
+                        "SELECT lesson_credits FROM bot_users WHERE telegram_id = $1",
+                        telegram_id,
+                    )
+                    applied = False
+        if applied:
+            logger.warning(
+                "Lesson credits adjusted telegram_id=%s delta=%s actor_id=%s "
+                "ledger_id=%s",
+                telegram_id,
+                delta,
+                actor_telegram_id,
+                ledger_id,
+            )
+        return CreditAdjustment(
+            ledger_id=ledger_id,
+            telegram_id=telegram_id,
+            delta=delta,
+            balance=balance,
+            applied=applied,
+        )
+
+    async def get_credit_reconciliation(self, limit: int = 50) -> CreditReconciliation:
+        """Сверка ``bot_users.lesson_credits`` с суммой ledger. Только чтение."""
+        if not 1 <= limit <= 500:
+            raise ValueError("Лимит списка должен быть от 1 до 500")
+        async with self._pool.acquire() as connection:
+            # Один снимок для обоих запросов: параллельная запись или оплата
+            # не должна выглядеть расхождением.
+            async with connection.transaction(
+                isolation="repeatable_read", readonly=True
+            ):
+                checked_users = await connection.fetchval(
+                    "SELECT COUNT(*) FROM bot_users"
+                )
+                records = await connection.fetch(
+                    """
+                    SELECT telegram_id, user_name, lesson_credits, ledger_total,
+                           ledger_entries, last_entry_at,
+                           COUNT(*) OVER () AS mismatched_users
+                    FROM (
+                        SELECT profile.telegram_id, profile.user_name,
+                               profile.lesson_credits,
+                               COALESCE(SUM(ledger.delta), 0)::BIGINT AS ledger_total,
+                               COUNT(ledger.id) AS ledger_entries,
+                               MAX(ledger.created_at) AS last_entry_at
+                        FROM bot_users AS profile
+                        LEFT JOIN lesson_credit_ledger AS ledger
+                          ON ledger.telegram_id = profile.telegram_id
+                        GROUP BY profile.telegram_id
+                    ) AS totals
+                    WHERE lesson_credits <> ledger_total
+                    ORDER BY ABS(lesson_credits - ledger_total) DESC, telegram_id
+                    LIMIT $1
+                    """,
+                    limit,
+                )
+        return CreditReconciliation(
+            checked_users=checked_users,
+            mismatched_users=records[0]["mismatched_users"] if records else 0,
+            mismatches=[
+                CreditBalanceMismatch(
+                    telegram_id=record["telegram_id"],
+                    user_name=record["user_name"],
+                    lesson_credits=record["lesson_credits"],
+                    ledger_total=record["ledger_total"],
+                    ledger_entries=record["ledger_entries"],
+                    last_entry_at=record["last_entry_at"],
+                )
+                for record in records
+            ],
+        )
 
     async def get_lesson_credits(self, telegram_id: int) -> int:
         async with self._pool.acquire() as connection:
@@ -1557,21 +1766,6 @@ class PostgresRepository:
                 if booked_count >= slot["capacity"]:
                     raise SlotUnavailableError("На это занятие уже нет свободных мест")
 
-                debited = await connection.fetchrow(
-                    """
-                    UPDATE bot_users
-                    SET lesson_credits = lesson_credits - 1
-                    WHERE telegram_id = $1 AND lesson_credits > 0
-                    RETURNING lesson_credits
-                    """,
-                    telegram_id,
-                )
-                if debited is None:
-                    raise InsufficientLessonCreditsError(
-                        "На балансе нет доступных занятий. Купите абонемент, "
-                        "чтобы записаться."
-                    )
-
                 booking = await connection.fetchrow(
                     """
                     INSERT INTO lesson_bookings (slot_id, telegram_id)
@@ -1591,15 +1785,19 @@ class PostgresRepository:
                 if booking is None:
                     raise SlotUnavailableError("Не удалось подтвердить место")
 
-                await connection.execute(
-                    """
-                    INSERT INTO lesson_credit_ledger (
-                        telegram_id, entry_type, delta, reference_key
-                    )
-                    VALUES ($1, 'lesson_use', -1, $2)
-                    """,
+                # Списание после вставки брони: ключу ledger нужен её id. При
+                # нехватке занятий исключение откатывает всю транзакцию,
+                # включая только что созданную бронь.
+                await self._change_credits(
+                    connection,
                     telegram_id,
+                    -1,
+                    "lesson_use",
                     "slot_booking:{}:use:{}".format(booking["id"], uuid.uuid4()),
+                    insufficient_message=(
+                        "На балансе нет доступных занятий. Купите абонемент, "
+                        "чтобы записаться."
+                    ),
                 )
         logger.info(
             "Confirmed class booking slot_id=%s telegram_id=%s",
@@ -1663,22 +1861,11 @@ class PostgresRepository:
                     """,
                     booking["id"],
                 )
-                await connection.execute(
-                    """
-                    UPDATE bot_users
-                    SET lesson_credits = lesson_credits + 1
-                    WHERE telegram_id = $1
-                    """,
+                await self._change_credits(
+                    connection,
                     telegram_id,
-                )
-                await connection.execute(
-                    """
-                    INSERT INTO lesson_credit_ledger (
-                        telegram_id, entry_type, delta, reference_key
-                    )
-                    VALUES ($1, 'adjustment', 1, $2)
-                    """,
-                    telegram_id,
+                    1,
+                    "adjustment",
                     "slot_booking:{}:refund:{}".format(booking["id"], uuid.uuid4()),
                 )
         logger.info(
@@ -2027,17 +2214,16 @@ class PostgresRepository:
                     request_id,
                 )
                 if request["kind"] == "booking":
-                    profile = await connection.fetchrow(
+                    current_credits = await connection.fetchval(
                         """
-                        UPDATE bot_users
-                        SET lesson_credits = lesson_credits - 1
-                        WHERE telegram_id = $1 AND lesson_credits > 0
-                        RETURNING lesson_credits
+                        SELECT lesson_credits FROM bot_users
+                        WHERE telegram_id = $1
+                        FOR UPDATE
                         """,
                         request["telegram_id"],
                     )
-                    if profile is not None:
-                        current_credits = profile["lesson_credits"] + 1
+                    # Без занятий на балансе заявка просто закрывается.
+                    if current_credits:
                         allocated_credits = await connection.fetchval(
                             """
                             SELECT COALESCE(SUM(remaining), 0)
@@ -2071,36 +2257,26 @@ class PostgresRepository:
                                 """,
                                 request["telegram_id"],
                             )
-                        await connection.execute(
-                            """
-                            INSERT INTO lesson_credit_ledger (
-                                telegram_id, entry_type, delta, reference_key
-                            )
-                            VALUES ($1, 'lesson_use', -1, $2)
-                            """,
+                        debit = await self._change_credits(
+                            connection,
                             request["telegram_id"],
+                            -1,
+                            "lesson_use",
                             "request:{}".format(request_id),
+                            payment_id=(
+                                payment_credit["id"]
+                                if payment_credit is not None
+                                else None
+                            ),
                         )
-                        if payment_credit is not None:
-                            await connection.execute(
-                                """
-                                UPDATE lesson_credit_ledger
-                                SET payment_id = $2
-                                WHERE telegram_id = $1
-                                  AND entry_type = 'lesson_use'
-                                  AND reference_key = $3
-                                """,
+                        if debit is not None:
+                            logger.info(
+                                "Debited lesson credit request_id=%s "
+                                "telegram_id=%s remaining=%s",
+                                request_id,
                                 request["telegram_id"],
-                                payment_credit["id"],
-                                "request:{}".format(request_id),
+                                debit[1],
                             )
-                        logger.info(
-                            "Debited lesson credit request_id=%s "
-                            "telegram_id=%s remaining=%s",
-                            request_id,
-                            request["telegram_id"],
-                            profile["lesson_credits"],
-                        )
         completed = True
         logger.info("Completed request id=%s success=%s", request_id, completed)
         return completed

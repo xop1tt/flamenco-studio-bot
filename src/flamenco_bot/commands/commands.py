@@ -32,6 +32,8 @@ def get_admin_commands() -> list[BotCommand]:
         BotCommand(command="support_tickets", description="Обращения поддержки"),
         BotCommand(command="support_reply", description="Ответить на обращение"),
         BotCommand(command="support_close", description="Закрыть обращение"),
+        BotCommand(command="credits_adjust", description="Корректировка баланса"),
+        BotCommand(command="credits_audit", description="Сверка баланса с ledger"),
     ]
 
 

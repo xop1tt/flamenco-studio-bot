@@ -14,6 +14,7 @@ from .auth import (
     WeakPasswordError,
 )
 from .booking import BookingService
+from .credits import CreditService
 from .notifications import AdminNotifier, NotificationReport
 from .profile import (
     MAX_USER_NAME_LENGTH,
@@ -45,6 +46,7 @@ __all__ = [
     "CheckoutFailedError",
     "CheckoutResult",
     "CheckoutUnavailableError",
+    "CreditService",
     "EmailAlreadyRegisteredError",
     "InvalidCredentialsError",
     "InvalidTelegramAuthError",

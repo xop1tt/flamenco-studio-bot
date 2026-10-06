@@ -2,6 +2,7 @@ import logging
 from functools import lru_cache
 import re
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
+from ..config import Config
 from ..runtime.admin_access import get_admin_id
 from ..runtime.admin_actions_logging import create_admin_actions_logger
 from ..runtime.bot_lifecycle import RestartController
@@ -26,17 +28,21 @@ from ..keyboards.admin import (
     BOT_CANCEL_SCHEDULED_RESTART,
     BOT_SCHEDULE_RESTART,
     BOT_STATUS,
+    CREDITS_ADJUST_CANCEL,
+    CREDITS_ADJUST_CONFIRM,
     admin_action_keyboard,
     admin_menu_keyboard,
     bot_management_keyboard,
     bot_restart_confirmation_keyboard,
     bot_schedule_input_keyboard,
+    credit_adjustment_confirmation_keyboard,
 )
 from ..keyboards.common import CANCEL, MAIN_MENU
 from ..keyboards.user import main_menu_keyboard
 from ..runtime.runtime_resources import get_process_resources
 from ..payments import YooKassaClient
 from ..services import (
+    CreditService,
     InvalidUserNameError,
     PaymentService,
     RefundStatus,
@@ -44,7 +50,7 @@ from ..services import (
 )
 from ..class_catalog import CLASS_LABELS
 from ..studio_time import format_studio_datetime, parse_studio_datetime
-from ..database.repository import CLASS_KEYS
+from ..database.repository import CLASS_KEYS, InsufficientLessonCreditsError
 from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
 
 
@@ -951,4 +957,246 @@ async def check_lesson_refund(
         repository,
         payment_gateway,
         admin_id,
+    )
+
+
+# Подтверждение корректировки баланса действует недолго: не применять
+# «забытую» операцию через часы, когда баланс уже мог измениться.
+CREDIT_ADJUSTMENT_CONFIRMATION_TTL_SECONDS = 600
+CREDIT_ADJUSTMENT_FORMAT = (
+    "Формат: /credits_adjust TELEGRAM_ID +N|-N причина\n"
+    "Например: /credits_adjust 123456789 +1 оплата наличными"
+)
+_SIGNED_INTEGER = re.compile(r"[+-]\d{1,9}")
+CREDIT_AUDIT_LIMIT = 20
+
+
+def _credit_service(repository: Any) -> CreditService:
+    return CreditService(repository, Config.CREDIT_ADJUSTMENT_MAX_DELTA)
+
+
+@router.message(Command("credits_adjust"))
+async def start_credit_adjustment(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await _deny_non_admin(message, repository)
+        return
+    service = _credit_service(repository)
+    if not service.available:
+        await message.answer("Корректировка баланса требует PostgreSQL.")
+        return
+    parts = (message.text or "").split(maxsplit=3)
+    if (
+        len(parts) != 4
+        or not parts[1].isdigit()
+        or int(parts[1]) <= 0
+        or _SIGNED_INTEGER.fullmatch(parts[2]) is None
+    ):
+        await message.answer(CREDIT_ADJUSTMENT_FORMAT)
+        return
+    telegram_id, delta = int(parts[1]), int(parts[2])
+    try:
+        reason = service.validate_adjustment(delta, parts[3])
+    except ValueError as error:
+        await message.answer("{}.\n{}".format(error, CREDIT_ADJUSTMENT_FORMAT))
+        return
+    profile = await repository.get_profile(telegram_id)
+    if profile is None:
+        await message.answer("Участник с таким Telegram ID не найден.")
+        return
+    if profile.lesson_credits + delta < 0:
+        await message.answer(
+            "Баланс не может стать отрицательным: у участника {} занятий, "
+            "списать {} нельзя.".format(profile.lesson_credits, -delta)
+        )
+        return
+    await state.set_state(AdminForm.waiting_for_credit_adjustment_confirmation)
+    await state.update_data(
+        credit_adjustment={
+            "telegram_id": telegram_id,
+            "delta": delta,
+            "reason": reason,
+            "key": str(uuid.uuid4()),
+            "expires_at": time.time() + CREDIT_ADJUSTMENT_CONFIRMATION_TTL_SECONDS,
+        }
+    )
+    await message.answer(
+        "Корректировка баланса\n"
+        "Участник: {} (ID {})\n"
+        "Изменение: {:+d}\n"
+        "Баланс: {} → {}\n"
+        "Причина: {}\n\n"
+        "Применить? Подтверждение действует {} мин.".format(
+            profile.user_name,
+            telegram_id,
+            delta,
+            profile.lesson_credits,
+            profile.lesson_credits + delta,
+            reason,
+            CREDIT_ADJUSTMENT_CONFIRMATION_TTL_SECONDS // 60,
+        ),
+        reply_markup=credit_adjustment_confirmation_keyboard(),
+    )
+
+
+@router.message(F.text == CREDITS_ADJUST_CONFIRM)
+async def confirm_credit_adjustment(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
+    if await _deny_non_admin(message, repository):
+        await state.clear()
+        return
+    admin_id = await _admin_id(message, repository)
+    pending = (await state.get_data()).get("credit_adjustment")
+    if (
+        await state.get_state()
+        != AdminForm.waiting_for_credit_adjustment_confirmation.state
+        or pending is None
+    ):
+        await message.answer(
+            "Нет корректировки для подтверждения. Начните с /credits_adjust.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    if time.time() > pending["expires_at"]:
+        await state.clear()
+        await message.answer(
+            "Время подтверждения истекло. Повторите /credits_adjust.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    try:
+        result = await _credit_service(repository).adjust(
+            pending["telegram_id"],
+            pending["delta"],
+            pending["reason"],
+            admin_id,
+            uuid.UUID(pending["key"]),
+        )
+    except InsufficientLessonCreditsError as error:
+        # Баланс успел измениться после предпросмотра: списание отклонено.
+        await state.clear()
+        await message.answer(
+            "{}. Баланс не изменён.".format(error),
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    except (LookupError, ValueError, PermissionError) as error:
+        await state.clear()
+        await message.answer(
+            "Корректировка не выполнена: {}.".format(error),
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    # Прочие сбои (например, БД недоступна) оставляют подтверждение в силе:
+    # повторное нажатие использует тот же ключ и не удвоит корректировку.
+    await state.clear()
+    if result.applied:
+        text = "Готово: баланс участника {} изменён на {:+d}, теперь {}.".format(
+            result.telegram_id, result.delta, result.balance
+        )
+    else:
+        text = (
+            "Эта корректировка уже была применена ранее. Баланс участника {}: {}."
+        ).format(result.telegram_id, result.balance)
+    await message.answer(text, reply_markup=admin_menu_keyboard())
+    actions_logger().warning(
+        "action=adjust_credits admin_id=%s target_id=%s delta=%s ledger_id=%s "
+        "applied=%s",
+        admin_id,
+        result.telegram_id,
+        result.delta,
+        result.ledger_id,
+        result.applied,
+    )
+
+
+@router.message(F.text == CREDITS_ADJUST_CANCEL)
+async def cancel_credit_adjustment(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
+    if await _deny_non_admin(message, repository):
+        await state.clear()
+        return
+    await state.clear()
+    await message.answer(
+        "Корректировка отменена, баланс не изменён.",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+@router.message(AdminForm.waiting_for_credit_adjustment_confirmation)
+async def require_credit_adjustment_confirmation(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+) -> None:
+    if await _deny_non_admin(message, repository):
+        await state.clear()
+        return
+    await message.answer(
+        "Нажмите «Применить корректировку» или отмените действие.",
+        reply_markup=credit_adjustment_confirmation_keyboard(),
+    )
+
+
+def _format_credit_mismatch(mismatch: Any) -> str:
+    line = "{} | {} | баланс {} | ledger {} | разница {:+d} | записей {}".format(
+        mismatch.telegram_id,
+        mismatch.user_name,
+        mismatch.lesson_credits,
+        mismatch.ledger_total,
+        mismatch.difference,
+        mismatch.ledger_entries,
+    )
+    if mismatch.ledger_entries == 0:
+        return line + " | в ledger нет записей"
+    return line + " | последняя запись {}".format(
+        format_studio_datetime(mismatch.last_entry_at)
+    )
+
+
+@router.message(Command("credits_audit"))
+async def audit_credit_balances(message: Message, repository: Any) -> None:
+    admin_id = await _admin_id(message, repository)
+    if admin_id is None:
+        await _deny_non_admin(message, repository)
+        return
+    service = _credit_service(repository)
+    if not service.available:
+        await message.answer("Сверка баланса требует PostgreSQL.")
+        return
+    result = await service.reconcile(CREDIT_AUDIT_LIMIT)
+    if not result.mismatched_users:
+        await message.answer(
+            "Сверка баланса: расхождений нет (проверено участников: {}).".format(
+                result.checked_users
+            )
+        )
+        return
+    lines = [
+        "Сверка баланса: расхождения у {} из {} участников"
+        " (показаны первые {}).".format(
+            result.mismatched_users, result.checked_users, len(result.mismatches)
+        ),
+        "ID | имя | баланс | сумма ledger | разница | записей ledger",
+    ]
+    lines.extend(_format_credit_mismatch(item) for item in result.mismatches)
+    lines.append(
+        "Баланс автоматически не исправляется. Если записей в ledger нет, "
+        "баланс мог появиться до введения ledger."
+    )
+    await message.answer("\n".join(lines))
+    actions_logger().info(
+        "action=audit_credits admin_id=%s mismatched=%s",
+        admin_id,
+        result.mismatched_users,
     )

@@ -2,6 +2,7 @@ import unittest
 
 from flamenco_bot.config import (
     parse_admins,
+    parse_credit_adjustment_limit,
     parse_database_pool_sizes,
     parse_website_url,
 )
@@ -44,3 +45,10 @@ class ConfigTests(unittest.TestCase):
             parse_website_url("http://localhost:3000", "development"),
             "http://localhost:3000",
         )
+
+    def test_credit_adjustment_limit_accepts_positive_integers_only(self):
+        self.assertEqual(parse_credit_adjustment_limit("50"), 50)
+        for value in ("0", "-3", "many", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    parse_credit_adjustment_limit(value)
