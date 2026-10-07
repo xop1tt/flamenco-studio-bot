@@ -13,6 +13,7 @@ from ...database.repository import WebUserRecord
 from ...services import NotificationService
 from ..dependencies import get_notification_service, require_telegram_linked_user
 from ..schemas import (
+    MAX_DB_ID,
     MarkNotificationsReadRequest,
     MarkNotificationsReadResponse,
     NotificationResponse,
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 async def list_my_notifications(
     limit: int = Query(default=20, ge=1, le=50),
     unread_only: bool = Query(default=False),
-    before_id: Optional[int] = Query(default=None, gt=0),
+    before_id: Optional[int] = Query(default=None, gt=0, le=MAX_DB_ID),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
     service: NotificationService = Depends(get_notification_service),
 ) -> NotificationsPage:

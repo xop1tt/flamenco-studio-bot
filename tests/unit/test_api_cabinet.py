@@ -113,6 +113,31 @@ class ApiCabinetTests(unittest.TestCase):
             with self.subTest(path=path, auth="email-only"):
                 self.assertEqual(self.client.get(path).status_code, 409)
 
+    def test_ids_outside_bigint_are_rejected_as_validation_errors(self):
+        # Раньше такие id доходили до asyncpg и давали 500 вместо 4xx.
+        self.login()
+        too_big = 2**63
+        requests = (
+            ("get", "/api/schedule/{}".format(too_big), None),
+            ("get", "/api/support/me/{}".format(too_big), None),
+            ("delete", "/api/bookings/{}".format(too_big), None),
+            ("get", "/api/payments/{}/check".format(too_big), None),
+            ("get", "/api/history/operations?before_id={}".format(too_big), None),
+            ("get", "/api/notifications/me?before_id={}".format(too_big), None),
+            ("post", "/api/bookings", {"slot_id": too_big}),
+            ("post", "/api/notifications/me/read", {"ids": [too_big]}),
+        )
+        for method, path, body in requests:
+            with self.subTest(method=method, path=path):
+                kwargs = {"json": body} if body is not None else {}
+                response = getattr(self.client, method)(path, **kwargs)
+                self.assertEqual(response.status_code, 422)
+        # Границы не меняют обычные ответы.
+        self.assertEqual(self.client.get("/api/schedule/0").status_code, 404)
+        self.assertEqual(
+            self.client.get("/api/schedule/{}".format(2**63 - 1)).status_code, 404
+        )
+
     # --- обзор, абонементы, история ---------------------------------------
 
     def test_overview_packages_and_history_reflect_ledger(self):

@@ -7,7 +7,7 @@
 import logging
 from typing import Any, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...database.repository import WebUserRecord
 from ...services import (
@@ -21,6 +21,7 @@ from ..dependencies import (
     require_telegram_linked_user,
 )
 from ..schemas import (
+    MAX_DB_ID,
     SupportMessageRequest,
     SupportSubmissionResponse,
     SupportThreadResponse,
@@ -70,7 +71,7 @@ async def list_my_support_tickets(
 
 @router.get("/me/{ticket_id}", response_model=SupportThreadResponse)
 async def read_my_support_ticket(
-    ticket_id: int,
+    ticket_id: int = Path(gt=0, le=MAX_DB_ID),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
     repository: Any = Depends(get_repository),
 ) -> SupportThreadResponse:

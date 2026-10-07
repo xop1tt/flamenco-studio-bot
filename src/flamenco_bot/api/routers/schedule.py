@@ -8,11 +8,11 @@
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from ...database.repository import CLASS_KEYS
 from ..dependencies import get_repository
-from ..schemas import ClassSlotResponse
+from ..schemas import MAX_DB_ID, ClassSlotResponse
 
 
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -37,7 +37,7 @@ async def list_schedule(
 
 @router.get("/{slot_id}", response_model=ClassSlotResponse)
 async def read_slot(
-    slot_id: int,
+    slot_id: int = Path(le=MAX_DB_ID),
     repository: Any = Depends(get_repository),
 ) -> ClassSlotResponse:
     slot = await repository.get_class_slot(slot_id) if slot_id > 0 else None

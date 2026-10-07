@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime, timezone
-from typing import Any, List, Literal, Mapping, Optional
+from typing import Annotated, Any, List, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,6 +40,12 @@ from ..services import (
     normalize_user_name,
 )
 from ..services.history import BOOKING_STATUS_LABELS, booking_status
+
+
+# Идентификаторы в PostgreSQL — BIGINT. Число за его пределами должно
+# отклоняться валидацией (422), а не падать в драйвере БД (500).
+MAX_DB_ID = 2**63 - 1
+DbId = Annotated[int, Field(gt=0, le=MAX_DB_ID)]
 
 
 class RegisterRequest(BaseModel):
@@ -152,7 +158,7 @@ class LessonPackageResponse(BaseModel):
 
 
 class BookingRequest(BaseModel):
-    slot_id: int = Field(gt=0)
+    slot_id: DbId
 
 
 class CreditSourceResponse(BaseModel):
@@ -527,7 +533,7 @@ class UnreadCountResponse(BaseModel):
 
 class MarkNotificationsReadRequest(BaseModel):
     # Не задано — отметить прочитанными все свои уведомления.
-    ids: Optional[List[int]] = Field(default=None, max_length=100)
+    ids: Optional[List[DbId]] = Field(default=None, max_length=100)
 
 
 class MarkNotificationsReadResponse(BaseModel):

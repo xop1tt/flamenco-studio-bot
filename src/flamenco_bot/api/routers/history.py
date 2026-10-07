@@ -13,6 +13,7 @@ from ...database.repository import WebUserRecord
 from ...services import HistoryService
 from ..dependencies import get_history_service, require_telegram_linked_user
 from ..schemas import (
+    MAX_DB_ID,
     BookingHistoryPage,
     HistoryOperationResponse,
     HistoryOperationsPage,
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api/history", tags=["history"])
 @router.get("/operations", response_model=HistoryOperationsPage)
 async def list_operations(
     limit: int = Query(default=20, ge=1, le=50),
-    before_id: Optional[int] = Query(default=None, gt=0),
+    before_id: Optional[int] = Query(default=None, gt=0, le=MAX_DB_ID),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
     history_service: HistoryService = Depends(get_history_service),
 ) -> HistoryOperationsPage:

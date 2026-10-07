@@ -10,7 +10,7 @@
 import logging
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from ...database.repository import (
     BookingCooldownError,
@@ -29,6 +29,7 @@ from ..dependencies import (
     require_telegram_linked_user,
 )
 from ..schemas import (
+    MAX_DB_ID,
     BookingRequest,
     BookingResponse,
     BookingRulesResponse,
@@ -72,7 +73,7 @@ async def create_booking(
 
 @router.delete("/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_booking(
-    slot_id: int,
+    slot_id: int = Path(gt=0, le=MAX_DB_ID),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
     booking_service: BookingService = Depends(get_booking_service),
 ) -> None:

@@ -14,7 +14,7 @@ checkout_available``) checkout отвечает 503 — ожидаемое со�
 import logging
 from typing import Any, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...database.repository import WebUserRecord
 from ...payments import PURCHASE_PACKAGES
@@ -25,6 +25,7 @@ from ..dependencies import (
     require_telegram_linked_user,
 )
 from ..schemas import (
+    MAX_DB_ID,
     CheckoutRequest,
     CheckoutResponse,
     PaymentHistoryItemResponse,
@@ -72,7 +73,7 @@ async def start_checkout(
 
 @router.get("/{payment_id}/check", response_model=PaymentStatusResponse)
 async def check_payment_status(
-    payment_id: int,
+    payment_id: int = Path(gt=0, le=MAX_DB_ID),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
     payment_service: PaymentService = Depends(get_payment_service),
 ) -> PaymentStatusResponse:
