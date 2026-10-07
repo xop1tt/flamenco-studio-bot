@@ -16,17 +16,21 @@ BOT_SCHEDULE_RESTART = "🕒 Запланировать перезапуск"
 BOT_CANCEL_SCHEDULED_RESTART = "❌ Отменить запланированный перезапуск"
 CREDITS_ADJUST_CONFIRM = "✅ Применить корректировку"
 CREDITS_ADJUST_CANCEL = "↩️ Не применять"
-CLASS_SLOTS = "🗓 Слоты занятий"
+ADMIN_SCHEDULE = "🗓 Расписание занятий"
+ADMIN_CLIENTS = "👥 Клиенты"
+ADMIN_FINANCE = "💰 Финансы"
 SUPPORT_TICKETS = "📨 Обращения поддержки"
+# Кнопки прежнего админ-меню: старая reply-клавиатура может остаться у
+# администратора — они по-прежнему работают (поиск, имя/телефон по ID,
+# расписание), но в новом меню эти действия — в карточке участника.
+CLASS_SLOTS = "🗓 Слоты занятий"
 
 
 def admin_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Четыре раздела; действия внутри — inline-кнопками в карточках."""
     return keyboard(
-        [ADMIN_SEARCH],
-        [ADMIN_EDIT_NAME],
-        [ADMIN_EDIT_PHONE],
-        [CLASS_SLOTS],
-        [SUPPORT_TICKETS],
+        [ADMIN_SCHEDULE, ADMIN_CLIENTS],
+        [SUPPORT_TICKETS, ADMIN_FINANCE],
         [MAIN_MENU],
     )
 

@@ -14,6 +14,7 @@ from .runtime.bot_logging import (
 )
 from .healthcheck import heartbeat_path_from_env, write_heartbeat
 from .runtime.monitoring import monitor_health
+from .runtime.notifications import start_notification_worker
 from .runtime.payment_reconciliation import start_reconciliation_task
 from .runtime.security import SecurityMiddleware, SupportRateLimiter
 from .commands import register_commands
@@ -134,6 +135,13 @@ async def main():
         )
         if reconciliation_task is not None:
             lifecycle_tasks.append(reconciliation_task)
+        # Уведомления участникам из outbox (запись с сайта, отмена/перенос
+        # студией, напоминания) — отправляются после commit операции.
+        lifecycle_tasks.append(
+            start_notification_worker(
+                repository, bot, logger, Config.LESSON_REMINDER_HOURS
+            )
+        )
         if Config.ENV == "development":
             lifecycle_tasks.extend(
                 [

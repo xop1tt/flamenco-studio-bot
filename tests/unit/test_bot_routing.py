@@ -120,7 +120,7 @@ class BotRoutingTests(unittest.IsolatedAsyncioTestCase):
         return await self.dp.storage.get_state(key)
 
     async def test_free_text_never_creates_payment(self):
-        await self.send_text("💳 Абонементы")
+        await self.send_text("💳 Покупки")
         await self.press("pack:single:0")
         for text in ("да", "нет", "Разовое занятие — 1000 ₽", "оплатить"):
             await self.send_text(text)
@@ -142,10 +142,10 @@ class BotRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("кнопку «Оплатить»", self.last_text())
 
     async def test_menu_button_during_support_input_navigates_instead_of_ticket(self):
-        await self.send_text("💬 Помощь")
+        await self.send_text("💬 Поддержка")
         self.assertEqual(await self.state_of_user(), "SupportForm:waiting_for_message")
 
-        await self.send_text("📖 Мои занятия")
+        await self.send_text("💃 Мои занятия")
 
         self.repository.create_support_message.assert_not_awaited()
         self.assertIsNone(await self.state_of_user())
@@ -162,7 +162,7 @@ class BotRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Не понял сообщение", self.last_text())
 
     async def test_support_message_is_saved_while_input_is_fresh(self):
-        await self.send_text("💬 Помощь")
+        await self.send_text("💬 Поддержка")
         await self.send_text("Можно прийти без формы?")
 
         self.repository.create_support_message.assert_awaited_once_with(

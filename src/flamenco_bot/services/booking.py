@@ -26,15 +26,25 @@ class BookingService:
     async def list_available_slots(self, class_key: str) -> Sequence[ClassSlot]:
         return await self.repository.list_available_class_slots(class_key)
 
-    async def book(self, slot_id: int, telegram_id: int) -> ClassBooking:
+    async def book(
+        self,
+        slot_id: int,
+        telegram_id: int,
+        notify_user: bool = False,
+    ) -> ClassBooking:
         """Подтверждает место и списывает 1 lesson_credit.
 
         ``SlotUnavailableError`` — слот закрыт/заполнен/в прошлом.
         ``InsufficientLessonCreditsError`` — на балансе нет занятий.
         ``BookingCooldownError`` — слот отменён этим же пользователем
         недавно, повторная запись пока недоступна.
+
+        ``notify_user`` — поставить участнику уведомление о записи (запись
+        с сайта); бот показывает результат в том же чате и не дублирует его.
         """
-        booking = await self.repository.book_class_slot(slot_id, telegram_id)
+        booking = await self.repository.book_class_slot(
+            slot_id, telegram_id, notify_user=notify_user
+        )
         logger.info(
             "Class booking confirmed slot_id=%s telegram_id=%s duplicate=%s",
             slot_id,
@@ -43,7 +53,12 @@ class BookingService:
         )
         return booking
 
-    async def cancel(self, slot_id: int, telegram_id: int) -> bool:
+    async def cancel(
+        self,
+        slot_id: int,
+        telegram_id: int,
+        notify_user: bool = False,
+    ) -> bool:
         """Отменяет запись и возвращает кредит.
 
         ``False``, если запись уже была отменена ранее (идемпотентно).
@@ -51,7 +66,7 @@ class BookingService:
         см. ``PostgresRepository.cancel_class_slot_booking``.
         """
         cancelled = await self.repository.cancel_class_slot_booking(
-            slot_id, telegram_id
+            slot_id, telegram_id, notify_user=notify_user
         )
         logger.info(
             "Class booking cancel slot_id=%s telegram_id=%s cancelled=%s",

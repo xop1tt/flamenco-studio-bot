@@ -23,19 +23,35 @@ from ...services import (
     WeakPasswordError,
 )
 from ...database.repository import WebUserRecord
+from ...database.studio_models import TELEGRAM_CONNECT_TTL
 from ..dependencies import (
     client_ip,
     get_auth_limiter,
     get_auth_service,
+    get_bot_username,
     get_current_user,
+    get_optional_user,
     get_repository,
 )
-from ..schemas import LoginRequest, RegisterRequest, TelegramAuthRequest, UserResponse
+from ..schemas import (
+    LoginRequest,
+    RegisterRequest,
+    TelegramAuthRequest,
+    TelegramConnectRequestBody,
+    TelegramConnectStartResponse,
+    TelegramConnectStatusResponse,
+    UserResponse,
+)
 from ..security import (
     SESSION_COOKIE_NAME,
     SESSION_TOKEN_TTL_SECONDS,
     generate_session_token,
 )
+
+# Секрет браузера для входа через бота: только в httpOnly-cookie и только
+# для эндпоинтов /api/auth/telegram/connect*.
+CONNECT_COOKIE_NAME = "tg_connect"
+CONNECT_COOKIE_PATH = "/api/auth/telegram/connect"
 
 
 def _enforce_auth_rate_limit(ip: str, limiter: AuthRateLimiter) -> None:
@@ -184,3 +200,74 @@ async def unlink_telegram(
     except CannotUnlinkOnlyLoginMethodError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return UserResponse.from_record(user)
+
+
+@router.post(
+    "/telegram/connect",
+    response_model=TelegramConnectStartResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_telegram_connect(
+    payload: TelegramConnectRequestBody,
+    response: Response,
+    current_user: Optional[WebUserRecord] = Depends(get_optional_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    bot_username: str = Depends(get_bot_username),
+    ip: str = Depends(client_ip),
+    limiter: AuthRateLimiter = Depends(get_auth_limiter),
+) -> TelegramConnectStartResponse:
+    """Вход (``login``) или привязка Telegram (``link``) через бота.
+
+    Возвращает ссылку на бота; браузер получает секрет в httpOnly-cookie.
+    Участник подтверждает действие кнопкой в боте, а сайт опрашивает
+    ``/telegram/connect/complete`` — сессию получит только этот браузер.
+    """
+    _enforce_auth_rate_limit(ip, limiter)
+    if payload.purpose == "link" and current_user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Требуется вход")
+    started = await auth_service.start_telegram_connect(
+        bot_username,
+        web_user_id=current_user.id if payload.purpose == "link" else None,
+    )
+    response.set_cookie(
+        CONNECT_COOKIE_NAME,
+        started.browser_secret,
+        max_age=int(TELEGRAM_CONNECT_TTL.total_seconds()) + 300,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=CONNECT_COOKIE_PATH,
+    )
+    return TelegramConnectStartResponse(
+        deep_link=started.deep_link, expires_at=started.expires_at
+    )
+
+
+@router.post("/telegram/connect/complete", response_model=TelegramConnectStatusResponse)
+async def complete_telegram_connect(
+    response: Response,
+    connect_secret: Optional[str] = Cookie(default=None, alias=CONNECT_COOKIE_NAME),
+    auth_service: AuthService = Depends(get_auth_service),
+    repository: Any = Depends(get_repository),
+) -> TelegramConnectStatusResponse:
+    """Опрос состояния входа через бота; при подтверждении — выдаёт сессию.
+
+    Сессия выдаётся ровно один раз (повторный опрос получает ``used``).
+    """
+    if not connect_secret:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Нет активного входа через бота"
+        )
+    completion = await auth_service.complete_telegram_connect(connect_secret)
+    if completion.status == "unknown":
+        response.delete_cookie(CONNECT_COOKIE_NAME, path=CONNECT_COOKIE_PATH)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Запрос входа не найден")
+    if completion.status == "pending":
+        return TelegramConnectStatusResponse(status="pending")
+    response.delete_cookie(CONNECT_COOKIE_NAME, path=CONNECT_COOKIE_PATH)
+    if completion.status != "completed" or completion.user is None:
+        return TelegramConnectStatusResponse(status=completion.status)
+    await _set_session_cookie(response, completion.user.id, repository)
+    return TelegramConnectStatusResponse(
+        status="completed", user=UserResponse.from_record(completion.user)
+    )

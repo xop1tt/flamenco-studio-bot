@@ -15,6 +15,8 @@ from urllib.parse import urlparse
 
 import asyncpg
 
+from .studio_models import CreditSource
+
 
 logger = logging.getLogger("bot.database")
 MIGRATIONS_DIRECTORY = Path(__file__).resolve().parent / "migrations"
@@ -29,6 +31,47 @@ MAX_SUPPORT_MESSAGE_LENGTH = 2000
 #   слот в течение 12 часов (чтобы не злоупотреблять отменой/записью).
 BOOKING_CANCELLATION_DEADLINE = timedelta(hours=24)
 BOOKING_REBOOK_COOLDOWN = timedelta(hours=12)
+
+
+def booking_cancellation_deadline(
+    starts_at: datetime,
+    booked_at: Optional[datetime] = None,
+    rescheduled_at: Optional[datetime] = None,
+) -> datetime:
+    """До какого момента участник может отменить запись.
+
+    Обычно — не позднее чем за 24 часа до начала. Если студия перенесла
+    занятие после того, как участник записался, новое время участник не
+    выбирал: такую запись можно отменить до нового начала (правило
+    продуктового roadmap, этап 2 «Перенос»).
+    """
+    if (
+        rescheduled_at is not None
+        and booked_at is not None
+        and booked_at <= rescheduled_at
+    ):
+        return starts_at
+    return starts_at - BOOKING_CANCELLATION_DEADLINE
+
+
+def check_cancellation_window(
+    starts_at: datetime,
+    booked_at: Optional[datetime],
+    rescheduled_at: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> None:
+    """``CancellationWindowExpiredError``, если отменять запись уже поздно."""
+    current = now or datetime.now(timezone.utc)
+    deadline = booking_cancellation_deadline(starts_at, booked_at, rescheduled_at)
+    if deadline == starts_at:
+        if current >= starts_at:
+            raise CancellationWindowExpiredError(
+                "Занятие уже началось — отменить запись нельзя"
+            )
+    elif current > deadline:
+        raise CancellationWindowExpiredError(
+            "Отмена доступна не позднее чем за 24 часа до начала занятия"
+        )
 
 
 def _validate_slot(class_key: str, starts_at: datetime, capacity: int) -> None:
@@ -116,6 +159,10 @@ class ClassSlot:
     capacity: int
     booked_count: int
     status: str = "open"
+    # Отмена студией (status = 'cancelled') и последний перенос.
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
+    rescheduled_at: Optional[datetime] = None
 
     @property
     def remaining(self) -> int:
@@ -130,6 +177,9 @@ class ClassSlot:
             capacity=record["capacity"],
             booked_count=record["booked_count"],
             status=record["status"],
+            cancelled_at=record.get("cancelled_at"),
+            cancel_reason=record.get("cancel_reason"),
+            rescheduled_at=record.get("rescheduled_at"),
         )
 
 
@@ -141,6 +191,10 @@ class ClassBooking:
     starts_at: datetime
     class_key: str
     already_booked: bool = False
+    # Баланс после списания и абонемент, с которого списано занятие
+    # (None — с занятий вне абонементов). Заполняются только для новой записи.
+    balance: Optional[int] = None
+    source: Optional[CreditSource] = None
 
 
 @dataclass(frozen=True)
@@ -149,7 +203,7 @@ class UserBooking:
 
     В отличие от ``ClassBooking`` (результат одного вызова ``book_class_slot``)
     используется для списков "мои занятия": несёт и статус брони
-    (confirmed/cancelled), и статус самого слота (open/closed).
+    (confirmed/cancelled), и статус самого слота (open/closed/cancelled).
     """
 
     id: int
@@ -158,6 +212,29 @@ class UserBooking:
     starts_at: datetime
     booking_status: str
     slot_status: str
+    booked_at: Optional[datetime] = None
+    # 'user' — отменил участник, 'studio' — занятие отменила студия.
+    cancelled_by: Optional[str] = None
+    rescheduled_at: Optional[datetime] = None
+    # Время занятия до последнего переноса студией.
+    previous_starts_at: Optional[datetime] = None
+    slot_cancel_reason: Optional[str] = None
+
+    @property
+    def cancellation_deadline(self) -> datetime:
+        return booking_cancellation_deadline(
+            self.starts_at, self.booked_at, self.rescheduled_at
+        )
+
+    def can_cancel(self, now: Optional[datetime] = None) -> bool:
+        """Подсказка интерфейсу; окончательно решает репозиторий."""
+        current = now or datetime.now(timezone.utc)
+        return (
+            self.booking_status == "confirmed"
+            and self.slot_status != "cancelled"
+            and current < self.starts_at
+            and current <= self.cancellation_deadline
+        )
 
     @classmethod
     def from_record(cls, record: Mapping[str, Any]) -> "UserBooking":
@@ -168,6 +245,11 @@ class UserBooking:
             starts_at=record["starts_at"],
             booking_status=record["booking_status"],
             slot_status=record["slot_status"],
+            booked_at=record.get("booked_at"),
+            cancelled_by=record.get("cancelled_by"),
+            rescheduled_at=record.get("rescheduled_at"),
+            previous_starts_at=record.get("previous_starts_at"),
+            slot_cancel_reason=record.get("slot_cancel_reason"),
         )
 
 
@@ -187,6 +269,7 @@ class SupportMessage:
     telegram_id: int
     sender_role: str
     body: str
+    created_at: Optional[datetime] = None
 
 
 class SlotUnavailableError(RuntimeError):
@@ -424,7 +507,13 @@ class TelegramAlreadyLinkedError(ValueError):
     """Этот Telegram уже привязан к другому веб-аккаунту."""
 
 
-class PostgresRepository:
+# Методы жизненного цикла занятий, абонементов, истории, уведомлений и входа
+# через бота вынесены в отдельные модули только из-за размера файла. Импорт
+# стоит здесь, а не в начале: модулю нужны типы, объявленные выше.
+from .studio_postgres import PostgresStudioMixin  # noqa: E402
+
+
+class PostgresRepository(PostgresStudioMixin):
     supports_durable_payments = True
 
     def __init__(self, pool: Any) -> None:
@@ -949,10 +1038,14 @@ class PostgresRepository:
                 profile = await connection.fetchrow(
                     """
                     SELECT lesson_credits FROM bot_users
-                    WHERE telegram_id = $1 FOR UPDATE
+                    WHERE telegram_id = $1 FOR NO KEY UPDATE
                     """,
                     payment["telegram_id"],
                 )
+                # 'adjustment' и 'slot_cancellation' с payment_id — возврат
+                # занятия этого абонемента при отмене записи участником или
+                # студией: без них отменённая запись выглядела бы
+                # использованным занятием и блокировала возврат оплаты.
                 payment_credit_balance = await connection.fetchval(
                     """
                     SELECT COALESCE(SUM(delta), 0)
@@ -960,7 +1053,8 @@ class PostgresRepository:
                     WHERE payment_id = $1
                       AND entry_type IN (
                           'purchase', 'lesson_use', 'refund_reservation',
-                          'refund', 'refund_release'
+                          'refund', 'refund_release', 'adjustment',
+                          'slot_cancellation'
                       )
                     """,
                     payment_id,
@@ -1120,6 +1214,8 @@ class PostgresRepository:
         reference_key: str,
         *,
         payment_id: Optional[int] = None,
+        grant_id: Optional[int] = None,
+        booking_id: Optional[int] = None,
         actor_telegram_id: Optional[int] = None,
         reason: Optional[str] = None,
         insufficient_message: str = "На балансе недостаточно занятий",
@@ -1135,6 +1231,10 @@ class PostgresRepository:
         трогается — так повтор детерминированной операции (например,
         ``payment:<id>``) идемпотентен. Иначе возвращает
         ``(id строки ledger, новый баланс)``.
+
+        ``payment_id`` / ``grant_id`` — абонемент, к которому относится
+        движение (остаток абонемента — сумма ledger по нему); ``booking_id``
+        — запись на занятие, за которую списано или возвращено занятие.
         """
         if delta == 0:
             raise ValueError("Изменение баланса не может быть нулевым")
@@ -1145,9 +1245,9 @@ class PostgresRepository:
                 """
                 INSERT INTO lesson_credit_ledger (
                     telegram_id, payment_id, entry_type, delta, reference_key,
-                    actor_telegram_id, reason
+                    actor_telegram_id, reason, grant_id, booking_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (reference_key) DO NOTHING
                 RETURNING id
                 """,
@@ -1158,6 +1258,8 @@ class PostgresRepository:
                 reference_key,
                 actor_telegram_id,
                 reason,
+                grant_id,
+                booking_id,
             )
         except asyncpg.ForeignKeyViolationError as error:
             raise LookupError(
@@ -1625,18 +1727,34 @@ class PostgresRepository:
     ) -> ClassSlot:
         _validate_slot(class_key, starts_at, capacity)
         async with self._pool.acquire() as connection:
-            record = await connection.fetchrow(
-                """
-                INSERT INTO lesson_slots (class_key, starts_at, capacity, created_by)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id, class_key, starts_at, capacity, 0 AS booked_count,
-                          status
-                """,
-                class_key,
-                starts_at,
-                capacity,
-                admin_telegram_id,
-            )
+            async with connection.transaction():
+                record = await connection.fetchrow(
+                    """
+                    INSERT INTO lesson_slots (
+                        class_key, starts_at, capacity, created_by
+                    )
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id, class_key, starts_at, capacity,
+                              0 AS booked_count, status
+                    """,
+                    class_key,
+                    starts_at,
+                    capacity,
+                    admin_telegram_id,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO lesson_slot_events (
+                        slot_id, event_type, actor_telegram_id, new_starts_at,
+                        new_capacity
+                    )
+                    VALUES ($1, 'created', $2, $3, $4)
+                    """,
+                    record["id"],
+                    admin_telegram_id,
+                    starts_at,
+                    capacity,
+                )
         logger.info("Created class slot id=%s class=%s", record["id"], class_key)
         return ClassSlot.from_record(record)
 
@@ -1644,7 +1762,15 @@ class PostgresRepository:
         self,
         class_key: Optional[str] = None,
         limit: int = 100,
+        include_cancelled: bool = False,
+        starts_after: Optional[datetime] = None,
     ) -> Sequence[ClassSlot]:
+        """Слоты, начинающиеся после ``starts_after`` (по умолчанию — сейчас).
+
+        Отменённые студией слоты по умолчанию не показываются: публичному
+        расписанию и списку записи они не нужны; админ-расписание передаёт
+        ``include_cancelled=True``.
+        """
         if class_key is not None and class_key not in CLASS_KEYS:
             raise ValueError("Неизвестный формат занятия")
         if not 1 <= limit <= 100:
@@ -1653,20 +1779,24 @@ class PostgresRepository:
             records = await connection.fetch(
                 """
                 SELECT slot.id, slot.class_key, slot.starts_at, slot.capacity,
-                       slot.status,
+                       slot.status, slot.cancelled_at, slot.cancel_reason,
+                       slot.rescheduled_at,
                        COUNT(booking.id) FILTER (
                            WHERE booking.status = 'confirmed'
                        )::INTEGER AS booked_count
                 FROM lesson_slots AS slot
                 LEFT JOIN lesson_bookings AS booking ON booking.slot_id = slot.id
-                WHERE slot.starts_at > NOW()
+                WHERE slot.starts_at > COALESCE($3::TIMESTAMPTZ, NOW())
                   AND ($1::TEXT IS NULL OR slot.class_key = $1)
+                  AND ($4::BOOLEAN OR slot.status <> 'cancelled')
                 GROUP BY slot.id
                 ORDER BY slot.starts_at
                 LIMIT $2
                 """,
                 class_key,
                 limit,
+                starts_after,
+                include_cancelled,
             )
         return [ClassSlot.from_record(record) for record in records]
 
@@ -1708,7 +1838,15 @@ class PostgresRepository:
         self,
         slot_id: int,
         telegram_id: int,
+        notify_user: bool = False,
     ) -> ClassBooking:
+        """Подтверждает место и списывает 1 занятие в одной транзакции.
+
+        Занятие списывается с абонемента по правилу ``pick_credit_source_index``
+        (сначала занятия вне абонементов, затем самый ранний абонемент) —
+        в ledger сохраняются и абонемент, и бронь. ``notify_user`` ставит
+        уведомление о записи в outbox (сайт; бот показывает результат сам).
+        """
         async with self._pool.acquire() as connection:
             async with connection.transaction():
                 slot = await connection.fetchrow(
@@ -1788,17 +1926,49 @@ class PostgresRepository:
                 # Списание после вставки брони: ключу ledger нужен её id. При
                 # нехватке занятий исключение откатывает всю транзакцию,
                 # включая только что созданную бронь.
-                await self._change_credits(
+                source, low_balance_enabled = await self._pick_credit_source(
+                    connection, telegram_id
+                )
+                _, balance = await self._change_credits(
                     connection,
                     telegram_id,
                     -1,
                     "lesson_use",
                     "slot_booking:{}:use:{}".format(booking["id"], uuid.uuid4()),
+                    payment_id=(
+                        source.id
+                        if source is not None and source.kind == "payment"
+                        else None
+                    ),
+                    grant_id=(
+                        source.id
+                        if source is not None and source.kind == "grant"
+                        else None
+                    ),
+                    booking_id=booking["id"],
                     insufficient_message=(
                         "На балансе нет доступных занятий. Купите абонемент, "
                         "чтобы записаться."
                     ),
                 )
+                if source is not None:
+                    source = replace(source, remaining=max(0, source.remaining - 1))
+                if notify_user:
+                    await self._enqueue_notification(
+                        connection,
+                        telegram_id,
+                        "booking_confirmed",
+                        {
+                            "slot_id": slot_id,
+                            "class_key": slot["class_key"],
+                            "starts_at": slot["starts_at"].isoformat(),
+                            "balance": balance,
+                            "source_title": source.title if source else None,
+                        },
+                        "booking_confirmed:{}:{}".format(booking["id"], uuid.uuid4()),
+                    )
+                if low_balance_enabled:
+                    await self._enqueue_low_balance(connection, telegram_id, balance)
         logger.info(
             "Confirmed class booking slot_id=%s telegram_id=%s",
             slot_id,
@@ -1810,22 +1980,29 @@ class PostgresRepository:
             telegram_id=telegram_id,
             starts_at=slot["starts_at"],
             class_key=slot["class_key"],
+            balance=balance,
+            source=source,
         )
 
     async def cancel_class_slot_booking(
         self,
         slot_id: int,
         telegram_id: int,
+        notify_user: bool = False,
     ) -> bool:
         """Отменяет подтверждённую запись и возвращает потраченный кредит.
 
         Идемпотентна: повторный вызов для уже отменённой записи возвращает
-        ``False`` без повторного начисления кредита.
+        ``False`` без повторного начисления кредита. Занятие возвращается в
+        тот же абонемент, с которого было списано.
         """
         async with self._pool.acquire() as connection:
             async with connection.transaction():
                 slot = await connection.fetchrow(
-                    "SELECT starts_at FROM lesson_slots WHERE id = $1 FOR UPDATE",
+                    """
+                    SELECT starts_at, class_key, status, rescheduled_at
+                    FROM lesson_slots WHERE id = $1 FOR UPDATE
+                    """,
                     slot_id,
                 )
                 if slot is None:
@@ -1833,7 +2010,7 @@ class PostgresRepository:
 
                 booking = await connection.fetchrow(
                     """
-                    SELECT id, status FROM lesson_bookings
+                    SELECT id, status, booked_at FROM lesson_bookings
                     WHERE slot_id = $1 AND telegram_id = $2
                     FOR UPDATE
                     """,
@@ -1845,13 +2022,11 @@ class PostgresRepository:
                 if booking["status"] != "confirmed":
                     return False
 
-                if (
-                    slot["starts_at"] - datetime.now(timezone.utc)
-                    < BOOKING_CANCELLATION_DEADLINE
-                ):
-                    raise CancellationWindowExpiredError(
-                        "Отмена доступна не позднее чем за 24 часа до начала занятия"
-                    )
+                check_cancellation_window(
+                    slot["starts_at"],
+                    booking["booked_at"],
+                    slot["rescheduled_at"],
+                )
 
                 await connection.execute(
                     """
@@ -1861,13 +2036,38 @@ class PostgresRepository:
                     """,
                     booking["id"],
                 )
-                await self._change_credits(
+                source = await connection.fetchrow(
+                    """
+                    SELECT payment_id, grant_id FROM lesson_credit_ledger
+                    WHERE booking_id = $1 AND entry_type = 'lesson_use'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    booking["id"],
+                )
+                _, balance = await self._change_credits(
                     connection,
                     telegram_id,
                     1,
                     "adjustment",
                     "slot_booking:{}:refund:{}".format(booking["id"], uuid.uuid4()),
+                    payment_id=source["payment_id"] if source else None,
+                    grant_id=source["grant_id"] if source else None,
+                    booking_id=booking["id"],
                 )
+                if notify_user:
+                    await self._enqueue_notification(
+                        connection,
+                        telegram_id,
+                        "booking_cancelled",
+                        {
+                            "slot_id": slot_id,
+                            "class_key": slot["class_key"],
+                            "starts_at": slot["starts_at"].isoformat(),
+                            "balance": balance,
+                        },
+                        "booking_cancelled:{}:{}".format(booking["id"], uuid.uuid4()),
+                    )
         logger.info(
             "Cancelled class booking slot_id=%s telegram_id=%s",
             slot_id,
@@ -1879,37 +2079,68 @@ class PostgresRepository:
         self,
         telegram_id: int,
         limit: int = 50,
+        offset: int = 0,
     ) -> Sequence[UserBooking]:
         if not 1 <= limit <= 100:
             raise ValueError("Количество записей должно быть от 1 до 100")
+        if offset < 0:
+            raise ValueError("Смещение списка не может быть отрицательным")
         async with self._pool.acquire() as connection:
             records = await connection.fetch(
                 """
                 SELECT booking.id, booking.slot_id, slot.class_key,
                        slot.starts_at, booking.status AS booking_status,
-                       slot.status AS slot_status
+                       slot.status AS slot_status, booking.booked_at,
+                       slot.rescheduled_at, slot.cancel_reason AS slot_cancel_reason,
+                       CASE
+                           WHEN booking.status <> 'cancelled' THEN NULL
+                           WHEN slot.status = 'cancelled'
+                                AND booking.updated_at >= slot.cancelled_at
+                           THEN 'studio'
+                           ELSE 'user'
+                       END AS cancelled_by,
+                       moved.old_starts_at AS previous_starts_at
                 FROM lesson_bookings AS booking
                 JOIN lesson_slots AS slot ON slot.id = booking.slot_id
+                LEFT JOIN LATERAL (
+                    SELECT event.old_starts_at
+                    FROM lesson_slot_events AS event
+                    WHERE event.slot_id = slot.id
+                      AND event.event_type = 'rescheduled'
+                    ORDER BY event.id DESC
+                    LIMIT 1
+                ) AS moved ON TRUE
                 WHERE booking.telegram_id = $1
-                ORDER BY slot.starts_at DESC
-                LIMIT $2
+                ORDER BY slot.starts_at DESC, booking.id DESC
+                LIMIT $2 OFFSET $3
                 """,
                 telegram_id,
                 limit,
+                offset,
             )
         return [UserBooking.from_record(record) for record in records]
 
-    async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
+    async def update_class_slot_capacity(
+        self,
+        slot_id: int,
+        capacity: int,
+        admin_telegram_id: Optional[int] = None,
+    ) -> bool:
         if not 1 <= capacity <= 100:
             raise ValueError("Вместимость слота должна быть от 1 до 100")
         async with self._pool.acquire() as connection:
             async with connection.transaction():
                 slot = await connection.fetchrow(
-                    "SELECT id FROM lesson_slots WHERE id = $1 FOR UPDATE",
+                    """
+                    SELECT id, capacity, status FROM lesson_slots
+                    WHERE id = $1 FOR UPDATE
+                    """,
                     slot_id,
                 )
                 if slot is None:
                     return False
+                if slot["status"] == "cancelled":
+                    raise ValueError("Занятие отменено — вместимость не меняется")
                 booked_count = await connection.fetchval(
                     """
                     SELECT COUNT(*) FROM lesson_bookings
@@ -1931,18 +2162,49 @@ class PostgresRepository:
                     slot_id,
                     capacity,
                 )
+                if capacity != slot["capacity"]:
+                    await connection.execute(
+                        """
+                        INSERT INTO lesson_slot_events (
+                            slot_id, event_type, actor_telegram_id,
+                            old_capacity, new_capacity
+                        )
+                        VALUES ($1, 'capacity_changed', $2, $3, $4)
+                        """,
+                        slot_id,
+                        admin_telegram_id,
+                        slot["capacity"],
+                        capacity,
+                    )
         return True
 
-    async def close_class_slot(self, slot_id: int) -> bool:
+    async def close_class_slot(
+        self,
+        slot_id: int,
+        admin_telegram_id: Optional[int] = None,
+    ) -> bool:
         async with self._pool.acquire() as connection:
-            result = await connection.execute(
-                """
-                UPDATE lesson_slots SET status = 'closed', updated_at = NOW()
-                WHERE id = $1 AND status = 'open'
-                """,
-                slot_id,
-            )
-        return result == "UPDATE 1"
+            async with connection.transaction():
+                closed = await connection.fetchval(
+                    """
+                    UPDATE lesson_slots SET status = 'closed', updated_at = NOW()
+                    WHERE id = $1 AND status = 'open'
+                    RETURNING id
+                    """,
+                    slot_id,
+                )
+                if closed is not None:
+                    await connection.execute(
+                        """
+                        INSERT INTO lesson_slot_events (
+                            slot_id, event_type, actor_telegram_id
+                        )
+                        VALUES ($1, 'closed', $2)
+                        """,
+                        slot_id,
+                        admin_telegram_id,
+                    )
+        return closed is not None
 
     async def list_admin_ids(self) -> Sequence[int]:
         async with self._pool.acquire() as connection:
@@ -2218,7 +2480,7 @@ class PostgresRepository:
                         """
                         SELECT lesson_credits FROM bot_users
                         WHERE telegram_id = $1
-                        FOR UPDATE
+                        FOR NO KEY UPDATE
                         """,
                         request["telegram_id"],
                     )
@@ -2320,9 +2582,14 @@ class _StoredBooking:
     id: int
     status: str
     updated_at: datetime
+    # Момент последней записи (для правила отмены после переноса студией).
+    booked_at: Optional[datetime] = None
 
 
-class InMemoryRepository:
+from .studio_memory import InMemoryStudioMixin  # noqa: E402
+
+
+class InMemoryRepository(InMemoryStudioMixin):
     """Temporary repository used only when PostgreSQL is not configured."""
 
     supports_durable_payments = False
@@ -2351,6 +2618,7 @@ class InMemoryRepository:
         self._next_web_user_id = 1
         self._web_sessions: Dict[str, Tuple[int, datetime]] = {}
         self._advisory_locks: set[int] = set()
+        self._init_studio_state()
 
     async def initialize(self) -> None:
         logger.warning("Using in-memory storage; data will be lost at shutdown")
@@ -2568,9 +2836,7 @@ class InMemoryRepository:
                 provider_payment_id=attempt.provider_payment_id,
                 confirmation_url=attempt.confirmation_url,
             )
-        self._credit_ledger.append(
-            (telegram_id, payment.lessons, "purchase", payment.id)
-        )
+        self._append_ledger(telegram_id, payment.lessons, "purchase", payment.id)
         profile = self._get_profile(telegram_id)
         self._profiles[telegram_id] = UserProfile(
             telegram_id=profile.telegram_id,
@@ -2658,13 +2924,8 @@ class InMemoryRepository:
             is_admin=profile.is_admin,
             lesson_credits=profile.lesson_credits - payment.lessons,
         )
-        self._credit_ledger.append(
-            (
-                payment.telegram_id,
-                -payment.lessons,
-                "refund_reservation",
-                payment_id,
-            )
+        self._append_ledger(
+            payment.telegram_id, -payment.lessons, "refund_reservation", payment_id
         )
         self._payments[payment_id] = LessonPayment(
             id=payment.id,
@@ -2730,16 +2991,10 @@ class InMemoryRepository:
             refund_reason=payment.refund_reason,
         )
         self._credit_ledger = [
-            (
-                telegram_id,
-                delta,
-                "refund"
-                if ledger_payment_id == payment_id
-                and entry_type == "refund_reservation"
-                else entry_type,
-                ledger_payment_id,
-            )
-            for telegram_id, delta, entry_type, ledger_payment_id in self._credit_ledger
+            row._replace(entry_type="refund")
+            if row.payment_id == payment_id and row.entry_type == "refund_reservation"
+            else row
+            for row in self._credit_ledger
         ]
         return True
 
@@ -2756,8 +3011,8 @@ class InMemoryRepository:
             is_admin=profile.is_admin,
             lesson_credits=profile.lesson_credits + payment.lessons,
         )
-        self._credit_ledger.append(
-            (payment.telegram_id, payment.lessons, "refund_release", payment_id)
+        self._append_ledger(
+            payment.telegram_id, payment.lessons, "refund_release", payment_id
         )
         self._payments[payment_id] = LessonPayment(
             id=payment.id,
@@ -2862,6 +3117,13 @@ class InMemoryRepository:
         )
         self._class_slots[slot.id] = slot
         self._next_slot_id += 1
+        self._record_slot_event(
+            slot.id,
+            "created",
+            actor_telegram_id=admin_telegram_id,
+            new_starts_at=starts_at,
+            new_capacity=capacity,
+        )
         logger.info(
             "Created in-memory class slot id=%s admin_id=%s",
             slot.id,
@@ -2873,16 +3135,20 @@ class InMemoryRepository:
         self,
         class_key: Optional[str] = None,
         limit: int = 100,
+        include_cancelled: bool = False,
+        starts_after: Optional[datetime] = None,
     ) -> Sequence[ClassSlot]:
         if class_key is not None and class_key not in CLASS_KEYS:
             raise ValueError("Неизвестный формат занятия")
         if not 1 <= limit <= 100:
             raise ValueError("Количество слотов должно быть от 1 до 100")
+        after = starts_after or datetime.now(timezone.utc)
         slots = [
             self._slot_with_count(slot)
             for slot in self._class_slots.values()
-            if slot.starts_at > datetime.now(timezone.utc)
+            if slot.starts_at > after
             and (class_key is None or slot.class_key == class_key)
+            and (include_cancelled or slot.status != "cancelled")
         ]
         return sorted(slots, key=lambda slot: slot.starts_at)[:limit]
 
@@ -2906,6 +3172,7 @@ class InMemoryRepository:
         self,
         slot_id: int,
         telegram_id: int,
+        notify_user: bool = False,
     ) -> ClassBooking:
         slot = self._class_slots.get(slot_id)
         if (
@@ -2945,35 +3212,60 @@ class InMemoryRepository:
                 "На балансе нет доступных занятий. Купите абонемент, чтобы записаться."
             )
 
+        source = self._memory_pick_source(telegram_id)
         booking_id = previous.id if previous is not None else self._next_booking_id
         if previous is None:
             self._next_booking_id += 1
+        now = datetime.now(timezone.utc)
         self._class_bookings[key] = _StoredBooking(
             id=booking_id,
             status="confirmed",
-            updated_at=datetime.now(timezone.utc),
+            updated_at=now,
+            booked_at=now,
         )
-        self._profiles[telegram_id] = UserProfile(
-            telegram_id=profile.telegram_id,
-            phone=profile.phone,
-            user_name=profile.user_name,
-            registered_at=profile.registered_at,
-            is_admin=profile.is_admin,
-            lesson_credits=profile.lesson_credits - 1,
+        balance = profile.lesson_credits - 1
+        self._set_credits(telegram_id, balance)
+        self._append_ledger(
+            telegram_id,
+            -1,
+            "lesson_use",
+            source.id if source is not None and source.kind == "payment" else None,
+            grant_id=(
+                source.id if source is not None and source.kind == "grant" else None
+            ),
+            booking_id=booking_id,
         )
-        self._credit_ledger.append((telegram_id, -1, "lesson_use", None))
+        if source is not None:
+            source = replace(source, remaining=max(0, source.remaining - 1))
+        if notify_user:
+            self._memory_enqueue(
+                telegram_id,
+                "booking_confirmed",
+                {
+                    "slot_id": slot_id,
+                    "class_key": slot.class_key,
+                    "starts_at": slot.starts_at.isoformat(),
+                    "balance": balance,
+                    "source_title": source.title if source else None,
+                },
+                "booking_confirmed:{}:{}".format(booking_id, uuid.uuid4()),
+            )
+        self._memory_enqueue_low_balance(telegram_id, balance)
         return ClassBooking(
             id=booking_id,
             slot_id=slot_id,
             telegram_id=telegram_id,
             starts_at=slot.starts_at,
             class_key=slot.class_key,
+            balance=balance,
+            source=source,
         )
 
     async def cancel_class_slot_booking(
         self,
         slot_id: int,
         telegram_id: int,
+        notify_user: bool = False,
     ) -> bool:
         slot = self._class_slots.get(slot_id)
         if slot is None:
@@ -2984,83 +3276,129 @@ class InMemoryRepository:
             raise BookingNotFoundError("Запись не найдена")
         if booking.status != "confirmed":
             return False
-        if slot.starts_at - datetime.now(timezone.utc) < BOOKING_CANCELLATION_DEADLINE:
-            raise CancellationWindowExpiredError(
-                "Отмена доступна не позднее чем за 24 часа до начала занятия"
-            )
+        check_cancellation_window(
+            slot.starts_at, booking.booked_at, slot.rescheduled_at
+        )
 
-        self._class_bookings[key] = _StoredBooking(
-            id=booking.id,
-            status="cancelled",
-            updated_at=datetime.now(timezone.utc),
+        self._class_bookings[key] = replace(
+            booking, status="cancelled", updated_at=datetime.now(timezone.utc)
         )
-        profile = self._get_profile(telegram_id)
-        self._profiles[telegram_id] = UserProfile(
-            telegram_id=profile.telegram_id,
-            phone=profile.phone,
-            user_name=profile.user_name,
-            registered_at=profile.registered_at,
-            is_admin=profile.is_admin,
-            lesson_credits=profile.lesson_credits + 1,
+        balance = self._get_profile(telegram_id).lesson_credits + 1
+        self._set_credits(telegram_id, balance)
+        payment_id, grant_id = self._booking_source(booking.id)
+        self._append_ledger(
+            telegram_id,
+            1,
+            "adjustment",
+            payment_id,
+            grant_id=grant_id,
+            booking_id=booking.id,
         )
-        self._credit_ledger.append((telegram_id, 1, "adjustment", None))
+        if notify_user:
+            self._memory_enqueue(
+                telegram_id,
+                "booking_cancelled",
+                {
+                    "slot_id": slot_id,
+                    "class_key": slot.class_key,
+                    "starts_at": slot.starts_at.isoformat(),
+                    "balance": balance,
+                },
+                "booking_cancelled:{}:{}".format(booking.id, uuid.uuid4()),
+            )
         return True
 
     async def list_bookings_for_telegram_id(
         self,
         telegram_id: int,
         limit: int = 50,
+        offset: int = 0,
     ) -> Sequence[UserBooking]:
         if not 1 <= limit <= 100:
             raise ValueError("Количество записей должно быть от 1 до 100")
-        bookings = [
-            UserBooking(
-                id=booking.id,
-                slot_id=slot_id,
-                class_key=self._class_slots[slot_id].class_key,
-                starts_at=self._class_slots[slot_id].starts_at,
-                booking_status=booking.status,
-                slot_status=self._class_slots[slot_id].status,
+        if offset < 0:
+            raise ValueError("Смещение списка не может быть отрицательным")
+        bookings = []
+        for (slot_id, booking_telegram_id), booking in self._class_bookings.items():
+            if booking_telegram_id != telegram_id:
+                continue
+            slot = self._class_slots[slot_id]
+            cancelled_by = None
+            if booking.status == "cancelled":
+                cancelled_by = (
+                    "studio"
+                    if slot.status == "cancelled"
+                    and slot.cancelled_at is not None
+                    and booking.updated_at >= slot.cancelled_at
+                    else "user"
+                )
+            moved = next(
+                (
+                    event
+                    for event in reversed(self._slot_events)
+                    if event.slot_id == slot_id and event.event_type == "rescheduled"
+                ),
+                None,
             )
-            for (slot_id, booking_telegram_id), booking in self._class_bookings.items()
-            if booking_telegram_id == telegram_id
-        ]
-        bookings.sort(key=lambda booking: booking.starts_at, reverse=True)
-        return bookings[:limit]
+            bookings.append(
+                UserBooking(
+                    id=booking.id,
+                    slot_id=slot_id,
+                    class_key=slot.class_key,
+                    starts_at=slot.starts_at,
+                    booking_status=booking.status,
+                    slot_status=slot.status,
+                    booked_at=booking.booked_at,
+                    cancelled_by=cancelled_by,
+                    rescheduled_at=slot.rescheduled_at,
+                    previous_starts_at=moved.old_starts_at if moved else None,
+                    slot_cancel_reason=slot.cancel_reason,
+                )
+            )
+        bookings.sort(key=lambda item: (item.starts_at, item.id), reverse=True)
+        return bookings[offset : offset + limit]
 
-    async def update_class_slot_capacity(self, slot_id: int, capacity: int) -> bool:
+    async def update_class_slot_capacity(
+        self,
+        slot_id: int,
+        capacity: int,
+        admin_telegram_id: Optional[int] = None,
+    ) -> bool:
         if not 1 <= capacity <= 100:
             raise ValueError("Вместимость слота должна быть от 1 до 100")
         slot = self._class_slots.get(slot_id)
         if slot is None:
             return False
+        if slot.status == "cancelled":
+            raise ValueError("Занятие отменено — вместимость не меняется")
         current = self._slot_with_count(slot)
         if capacity < current.booked_count:
             raise ValueError(
                 "Нельзя установить вместимость ниже числа подтверждённых записей"
             )
-        self._class_slots[slot_id] = ClassSlot(
-            id=slot.id,
-            class_key=slot.class_key,
-            starts_at=slot.starts_at,
-            capacity=capacity,
-            booked_count=current.booked_count,
-            status=slot.status,
+        self._class_slots[slot_id] = replace(
+            slot, capacity=capacity, booked_count=current.booked_count
         )
+        if capacity != slot.capacity:
+            self._record_slot_event(
+                slot_id,
+                "capacity_changed",
+                actor_telegram_id=admin_telegram_id,
+                old_capacity=slot.capacity,
+                new_capacity=capacity,
+            )
         return True
 
-    async def close_class_slot(self, slot_id: int) -> bool:
+    async def close_class_slot(
+        self,
+        slot_id: int,
+        admin_telegram_id: Optional[int] = None,
+    ) -> bool:
         slot = self._class_slots.get(slot_id)
         if slot is None or slot.status != "open":
             return False
-        self._class_slots[slot_id] = ClassSlot(
-            id=slot.id,
-            class_key=slot.class_key,
-            starts_at=slot.starts_at,
-            capacity=slot.capacity,
-            booked_count=slot.booked_count,
-            status="closed",
-        )
+        self._class_slots[slot_id] = replace(slot, status="closed")
+        self._record_slot_event(slot_id, "closed", actor_telegram_id=admin_telegram_id)
         return True
 
     def _slot_with_count(self, slot: ClassSlot) -> ClassSlot:
@@ -3069,14 +3407,7 @@ class InMemoryRepository:
             for (booking_slot_id, _), booking in self._class_bookings.items()
             if booking_slot_id == slot.id and booking.status == "confirmed"
         )
-        return ClassSlot(
-            id=slot.id,
-            class_key=slot.class_key,
-            starts_at=slot.starts_at,
-            capacity=slot.capacity,
-            booked_count=booked_count,
-            status=slot.status,
-        )
+        return replace(slot, booked_count=booked_count)
 
     async def list_admin_ids(self) -> Sequence[int]:
         return sorted(
@@ -3113,7 +3444,7 @@ class InMemoryRepository:
             self._support_messages[ticket.id] = []
             self._next_support_ticket_id += 1
         self._support_messages[ticket.id].append(
-            SupportMessage(ticket.id, telegram_id, "user", normalized)
+            SupportMessage(ticket.id, telegram_id, "user", normalized, created_at=now)
         )
         self._support_tickets[ticket.id] = SupportTicket(
             id=ticket.id,
@@ -3135,7 +3466,13 @@ class InMemoryRepository:
         if ticket is None or ticket.status != "open":
             return None
         self._support_messages[ticket_id].append(
-            SupportMessage(ticket_id, admin_telegram_id, "admin", normalized)
+            SupportMessage(
+                ticket_id,
+                admin_telegram_id,
+                "admin",
+                normalized,
+                created_at=datetime.now(timezone.utc),
+            )
         )
         self._support_tickets[ticket_id] = SupportTicket(
             id=ticket.id,
@@ -3288,13 +3625,12 @@ class InMemoryRepository:
                         ):
                             source_payment_id = payment.id
                             break
-                self._credit_ledger.append(
-                    (
-                        request.telegram_id,
-                        -1,
-                        "lesson_use",
-                        source_payment_id,
-                    )
+                self._append_ledger(
+                    request.telegram_id,
+                    -1,
+                    "lesson_use",
+                    source_payment_id,
+                    reference_key="request:{}".format(request_id),
                 )
         return True
 
@@ -3308,9 +3644,7 @@ class InMemoryRepository:
 
     def _payment_credit_balance(self, payment_id: int) -> int:
         return sum(
-            delta
-            for _, delta, _, ledger_payment_id in self._credit_ledger
-            if ledger_payment_id == payment_id
+            row.delta for row in self._credit_ledger if row.payment_id == payment_id
         )
 
     async def create_web_user(

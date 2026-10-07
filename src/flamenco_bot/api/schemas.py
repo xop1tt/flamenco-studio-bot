@@ -4,8 +4,8 @@
 другие внутренние поля никогда не попадают в ответ.
 """
 
-from datetime import datetime
-from typing import Any, Mapping, Optional
+from datetime import datetime, timezone
+from typing import Any, List, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,8 +21,25 @@ from ..database.repository import (
     UserProfile,
     WebUserRecord,
 )
+from ..database.studio_models import (
+    CreditSource,
+    NotificationSettings,
+    PackageSummary,
+    SupportTicketThread,
+    UserNotification,
+    UserPackage,
+)
+from ..notification_texts import render_notification
 from ..payments import LessonPackage
-from ..services import CheckoutResult, SupportSubmission, normalize_user_name
+from ..presentation import PACKAGE_STATUS_LABELS
+from ..services import (
+    CheckoutResult,
+    ClientOverview,
+    HistoryOperation,
+    SupportSubmission,
+    normalize_user_name,
+)
+from ..services.history import BOOKING_STATUS_LABELS, booking_status
 
 
 class RegisterRequest(BaseModel):
@@ -79,7 +96,14 @@ class ClassSlotResponse(BaseModel):
     starts_at: datetime
     capacity: int
     remaining: int
+    # open — запись открыта, closed — запись закрыта, cancelled — занятие
+    # отменено студией (в общем расписании не показывается).
     status: str
+    # Можно ли записаться прямо сейчас (открыто, есть места, не началось).
+    bookable: bool = False
+    # Занятие переносила студия (время уже новое).
+    rescheduled: bool = False
+    cancel_reason: Optional[str] = None
 
     @classmethod
     def from_record(cls, slot: ClassSlot) -> "ClassSlotResponse":
@@ -91,6 +115,11 @@ class ClassSlotResponse(BaseModel):
             capacity=slot.capacity,
             remaining=slot.remaining,
             status=slot.status,
+            bookable=slot.status == "open"
+            and slot.remaining > 0
+            and slot.starts_at > datetime.now(timezone.utc),
+            rescheduled=slot.rescheduled_at is not None,
+            cancel_reason=slot.cancel_reason,
         )
 
 
@@ -126,6 +155,26 @@ class BookingRequest(BaseModel):
     slot_id: int = Field(gt=0)
 
 
+class CreditSourceResponse(BaseModel):
+    """Абонемент, с которого списано занятие."""
+
+    kind: str
+    id: int
+    title: str
+    lessons: int
+    remaining: int
+
+    @classmethod
+    def from_source(cls, source: CreditSource) -> "CreditSourceResponse":
+        return cls(
+            kind=source.kind,
+            id=source.id,
+            title=source.title,
+            lessons=source.lessons,
+            remaining=source.remaining,
+        )
+
+
 class BookingResponse(BaseModel):
     id: int
     slot_id: int
@@ -133,6 +182,10 @@ class BookingResponse(BaseModel):
     class_label: str
     starts_at: datetime
     already_booked: bool
+    # Для новой записи: баланс после списания и абонемент-источник (None —
+    # списано с занятий вне абонементов).
+    balance: Optional[int] = None
+    source: Optional[CreditSourceResponse] = None
 
     @classmethod
     def from_booking(cls, booking: ClassBooking) -> "BookingResponse":
@@ -143,6 +196,12 @@ class BookingResponse(BaseModel):
             class_label=CLASS_LABELS[booking.class_key],
             starts_at=booking.starts_at,
             already_booked=booking.already_booked,
+            balance=booking.balance,
+            source=(
+                CreditSourceResponse.from_source(booking.source)
+                if booking.source is not None
+                else None
+            ),
         )
 
 
@@ -155,11 +214,21 @@ class UserBookingResponse(BaseModel):
     booking_status: str
     slot_status: str
     # До какого момента запись можно отменить — правило окна отмены живёт
-    # в репозитории, сайт только показывает срок (как и бот).
+    # в репозитории, сайт только показывает срок (как и бот). Если студия
+    # перенесла занятие после записи — это время начала.
     cancellable_until: datetime
+    can_cancel: bool = False
+    # upcoming | attended | cancelled_by_user | cancelled_by_studio
+    status: str = "upcoming"
+    status_label: str = ""
+    cancelled_by: Optional[str] = None
+    # Время до последнего переноса студией (None — не переносилось).
+    previous_starts_at: Optional[datetime] = None
+    slot_cancel_reason: Optional[str] = None
 
     @classmethod
     def from_record(cls, booking: UserBooking) -> "UserBookingResponse":
+        status = booking_status(booking)
         return cls(
             id=booking.id,
             slot_id=booking.slot_id,
@@ -168,7 +237,13 @@ class UserBookingResponse(BaseModel):
             starts_at=booking.starts_at,
             booking_status=booking.booking_status,
             slot_status=booking.slot_status,
-            cancellable_until=booking.starts_at - BOOKING_CANCELLATION_DEADLINE,
+            cancellable_until=booking.cancellation_deadline,
+            can_cancel=booking.can_cancel(),
+            status=status,
+            status_label=BOOKING_STATUS_LABELS[status],
+            cancelled_by=booking.cancelled_by,
+            previous_starts_at=booking.previous_starts_at,
+            slot_cancel_reason=booking.slot_cancel_reason,
         )
 
 
@@ -310,3 +385,256 @@ class PaymentHistoryItemResponse(BaseModel):
             status=item.status,
             created_at=item.created_at,
         )
+
+
+# ---------- абонементы ----------
+
+
+class UserPackageResponse(BaseModel):
+    kind: str  # payment — куплен, grant — выдан студией
+    id: int
+    package_key: str
+    title: str
+    lessons: int
+    remaining: int
+    # active | used | refund_pending | refunded | revoked
+    status: str
+    status_label: str
+    acquired_at: datetime
+    amount_minor: Optional[int] = None
+
+    @classmethod
+    def from_package(cls, package: UserPackage) -> "UserPackageResponse":
+        return cls(
+            kind=package.kind,
+            id=package.id,
+            package_key=package.package_key,
+            title=package.title,
+            lessons=package.lessons,
+            remaining=package.remaining,
+            status=package.status,
+            status_label=PACKAGE_STATUS_LABELS.get(package.status, package.status),
+            acquired_at=package.acquired_at,
+            amount_minor=package.amount_minor,
+        )
+
+
+class PackageSummaryResponse(BaseModel):
+    """Баланс по абонементам: сумма ``remaining`` + ``unallocated`` = ``balance``."""
+
+    balance: int
+    # Занятия вне абонементов (ручные начисления студии и т. п.).
+    unallocated: int
+    # С какого абонемента спишется следующая запись (None — вне абонементов).
+    next_source_title: Optional[str]
+    packages: List[UserPackageResponse]
+
+    @classmethod
+    def from_summary(cls, summary: PackageSummary) -> "PackageSummaryResponse":
+        next_source = summary.next_source
+        return cls(
+            balance=summary.balance,
+            unallocated=summary.unallocated,
+            next_source_title=next_source.title if next_source else None,
+            packages=[
+                UserPackageResponse.from_package(package)
+                for package in summary.packages
+            ],
+        )
+
+
+# ---------- история ----------
+
+
+class HistoryOperationResponse(BaseModel):
+    id: int
+    created_at: datetime
+    delta: int
+    # purchase | lesson_use | booking_refund | studio_cancellation |
+    # manual_credit | manual_debit | package_grant | package_revoke | ...
+    operation: str
+    label: str
+    reason: Optional[str] = None
+    package_title: Optional[str] = None
+    class_key: Optional[str] = None
+    class_label: Optional[str] = None
+    starts_at: Optional[datetime] = None
+
+    @classmethod
+    def from_operation(cls, item: HistoryOperation) -> "HistoryOperationResponse":
+        entry = item.entry
+        return cls(
+            id=entry.id,
+            created_at=entry.created_at,
+            delta=entry.delta,
+            operation=item.operation,
+            label=item.label,
+            reason=item.visible_reason,
+            package_title=entry.package_title,
+            class_key=entry.class_key,
+            class_label=CLASS_LABELS.get(entry.class_key) if entry.class_key else None,
+            starts_at=entry.starts_at,
+        )
+
+
+class HistoryOperationsPage(BaseModel):
+    items: List[HistoryOperationResponse]
+    # Передайте как before_id, чтобы получить следующую (более старую)
+    # страницу; None — дальше записей нет.
+    next_before_id: Optional[int] = None
+
+
+class BookingHistoryPage(BaseModel):
+    items: List[UserBookingResponse]
+    next_offset: Optional[int] = None
+
+
+# ---------- уведомления ----------
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    kind: str
+    title: str
+    body: str
+    created_at: datetime
+    read: bool
+
+    @classmethod
+    def from_notification(
+        cls, notification: UserNotification
+    ) -> "NotificationResponse":
+        message = render_notification(notification.kind, notification.payload)
+        return cls(
+            id=notification.id,
+            kind=notification.kind,
+            title=message.title,
+            body=message.body,
+            created_at=notification.created_at,
+            read=notification.read_at is not None,
+        )
+
+
+class NotificationsPage(BaseModel):
+    items: List[NotificationResponse]
+    unread_count: int
+    next_before_id: Optional[int] = None
+
+
+class UnreadCountResponse(BaseModel):
+    unread_count: int
+
+
+class MarkNotificationsReadRequest(BaseModel):
+    # Не задано — отметить прочитанными все свои уведомления.
+    ids: Optional[List[int]] = Field(default=None, max_length=100)
+
+
+class MarkNotificationsReadResponse(BaseModel):
+    updated: int
+
+
+class NotificationSettingsResponse(BaseModel):
+    reminders: bool
+    low_balance: bool
+
+    @classmethod
+    def from_settings(
+        cls, settings: NotificationSettings
+    ) -> "NotificationSettingsResponse":
+        return cls(reminders=settings.reminders, low_balance=settings.low_balance)
+
+
+class UpdateNotificationSettingsRequest(BaseModel):
+    reminders: Optional[bool] = None
+    low_balance: Optional[bool] = None
+
+
+# ---------- профиль ----------
+
+
+class OverviewResponse(BaseModel):
+    """Всё для главной страницы личного кабинета одним запросом."""
+
+    profile: ProfileResponse
+    packages: PackageSummaryResponse
+    upcoming: List[UserBookingResponse]
+    unread_notifications: int
+    notification_settings: NotificationSettingsResponse
+
+    @classmethod
+    def from_overview(cls, overview: ClientOverview) -> "OverviewResponse":
+        return cls(
+            profile=ProfileResponse.from_record(overview.profile),
+            packages=PackageSummaryResponse.from_summary(overview.packages),
+            upcoming=[
+                UserBookingResponse.from_record(booking)
+                for booking in overview.upcoming
+            ],
+            unread_notifications=overview.unread_notifications,
+            notification_settings=NotificationSettingsResponse.from_settings(
+                overview.settings
+            ),
+        )
+
+
+# ---------- поддержка ----------
+
+
+class SupportThreadMessageResponse(BaseModel):
+    id: int
+    # user — участник, admin — студия.
+    sender_role: str
+    body: str
+    created_at: datetime
+
+
+class SupportThreadResponse(BaseModel):
+    id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    messages: List[SupportThreadMessageResponse]
+
+    @classmethod
+    def from_thread(cls, thread: SupportTicketThread) -> "SupportThreadResponse":
+        return cls(
+            id=thread.id,
+            status=thread.status,
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+            messages=[
+                SupportThreadMessageResponse(
+                    id=message.id,
+                    sender_role=message.sender_role,
+                    body=message.body,
+                    created_at=message.created_at,
+                )
+                for message in thread.messages
+            ],
+        )
+
+
+# ---------- вход через бота ----------
+
+
+class TelegramConnectRequestBody(BaseModel):
+    # login — войти (аккаунт найдётся или создастся по Telegram);
+    # link — привязать Telegram к текущему (вошедшему) аккаунту.
+    purpose: Literal["login", "link"] = "login"
+
+
+class TelegramConnectStartResponse(BaseModel):
+    # Откройте в новой вкладке/приложении: t.me/<бот>?start=c_<token>.
+    deep_link: str
+    expires_at: datetime
+    # Как часто сайту опрашивать /connect/complete.
+    poll_interval_seconds: int = 2
+
+
+class TelegramConnectStatusResponse(BaseModel):
+    # pending — ждём подтверждения в боте; completed — вход выполнен (cookie
+    # сессии установлена); rejected — отклонено в боте; expired — ссылка
+    # устарела; used — запрос уже использован.
+    status: str
+    user: Optional[UserResponse] = None

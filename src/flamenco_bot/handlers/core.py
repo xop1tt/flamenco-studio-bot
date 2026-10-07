@@ -15,6 +15,8 @@ from ..keyboards.user.main_menu import (
     open_booking,
     open_my_classes,
     open_packages,
+    open_purchases,
+    show_about,
 )
 from ..keyboards.user.navigation import cancel_current_action
 
@@ -24,29 +26,32 @@ router = Router(name="core_commands")
 
 CLIENT_HELP = (
     "Как пользоваться ботом\n\n"
-    "🗓 Записаться — ближайшие занятия, выбор времени и запись\n"
-    "📖 Мои занятия — ваши записи и отмена\n"
-    "💳 Абонементы — баланс и покупка занятий\n"
-    "💃 О студии — направления, цены, правила записи\n"
-    "👤 Профиль — имя и телефон\n"
-    "💬 Помощь — написать в студию\n\n"
-    "/start — главное меню, /cancel — отменить ввод."
+    "📅 Расписание — ближайшие занятия, выбор времени и запись\n"
+    "💃 Мои занятия — ваши записи, отмена и история\n"
+    "🎟 Абонементы — остатки занятий по абонементам\n"
+    "💳 Покупки — купить абонемент, счета и история покупок\n"
+    "👤 Профиль — данные, баланс, история операций, уведомления\n"
+    "💬 Поддержка — написать в студию\n\n"
+    "/start — главное меню, /about — о студии и ценах, /cancel — отменить ввод."
 )
 
 ADMIN_HELP = (
-    "Команды администратора:\n"
-    "/admin — панель администратора\n"
-    "/slots — слоты занятий\n"
-    "/slot_add ФОРМАТ ISO-ДАТА ВМЕСТИМОСТЬ — создать слот\n"
-    "/slot_capacity ID ЧИСЛО — изменить вместимость\n"
-    "/slot_close ID — закрыть слот\n"
+    "Администратору — всё в «🛠 Админ-меню»: расписание (создать, перенести, "
+    "отменить, открыть/закрыть, участники), клиенты (профиль, абонементы, "
+    "выдача, корректировка), поддержка, финансы.\n\n"
+    "Команды:\n"
+    "/admin — админ-меню\n"
+    "/slots — расписание занятий\n"
+    "/slot ID — карточка занятия\n"
+    "/client ID — карточка участника\n"
     "/support_tickets — обращения поддержки\n"
-    "/support_reply ID текст — ответить\n"
-    "/support_close ID — закрыть обращение\n"
     "/credits_adjust ID +N|-N причина — корректировка баланса\n"
     "/credits_audit — сверка баланса с ledger\n"
-    "/requests — список незакрытых заявок\n"
-    "/done ID — закрыть заявку"
+    "/ledger [ID] — последние операции с балансом\n"
+    "/audit — журнал действий\n"
+    "/refund ID причина, /refund_check ID — возврат оплаты\n\n"
+    "Прежние команды тоже работают: /slot_add, /slot_capacity, /slot_close, "
+    "/support_reply, /support_close, /requests, /done."
 )
 
 
@@ -62,7 +67,7 @@ async def start_command(
     await message.answer(
         "¡Hola, {}! Это бот студии фламенко Mirada Studio.\n"
         "Здесь можно записаться на занятие, купить абонемент и посмотреть "
-        "свои записи. Направления, цены и правила — в «💃 О студии».\n\n"
+        "свои записи. Направления, цены и правила — /about.\n\n"
         "{}".format(profile.user_name, summary),
         reply_markup=main_menu_keyboard(is_admin=profile.is_admin),
     )
@@ -118,7 +123,21 @@ async def buy_command(
     repository: Any,
     state: FSMContext,
 ) -> None:
+    await open_purchases(message, state, repository)
+
+
+@router.message(Command("packages"))
+async def packages_command(
+    message: Message,
+    repository: Any,
+    state: FSMContext,
+) -> None:
     await open_packages(message, state, repository)
+
+
+@router.message(Command("about"))
+async def about_command(message: Message, state: FSMContext) -> None:
+    await show_about(message, state)
 
 
 @router.message(Command("cancel"))

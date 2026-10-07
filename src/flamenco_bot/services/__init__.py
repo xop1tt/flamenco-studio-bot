@@ -11,16 +11,23 @@ from .auth import (
     InvalidCredentialsError,
     InvalidTelegramAuthError,
     TelegramAlreadyLinkedError,
+    TelegramConnectCompletion,
+    TelegramConnectStart,
     WeakPasswordError,
 )
 from .booking import BookingService
 from .credits import CreditService
-from .notifications import AdminNotifier, NotificationReport
+from .history import HistoryOperation, HistoryService
+from .notifications import AdminNotifier, NotificationReport, NotificationService
+from .packages import PackageService, catalog_package
 from .profile import (
     MAX_USER_NAME_LENGTH,
+    ClientOverview,
     InvalidUserNameError,
+    ProfileService,
     normalize_user_name,
 )
+from .schedule import ScheduleService
 from .payments import (
     CheckoutFailedError,
     CheckoutResult,
@@ -46,23 +53,33 @@ __all__ = [
     "CheckoutFailedError",
     "CheckoutResult",
     "CheckoutUnavailableError",
+    "ClientOverview",
     "CreditService",
     "EmailAlreadyRegisteredError",
+    "HistoryOperation",
+    "HistoryService",
     "InvalidCredentialsError",
     "InvalidTelegramAuthError",
     "InvalidUserNameError",
     "MAX_USER_NAME_LENGTH",
     "NotificationReport",
+    "NotificationService",
+    "PackageService",
     "PaymentCheckResult",
     "PaymentCheckStatus",
     "PaymentService",
+    "ProfileService",
     "RefundResult",
     "RefundStatus",
+    "ScheduleService",
     "SupportMessageInvalidError",
     "SupportRateLimitedError",
     "SupportService",
     "SupportSubmission",
     "TelegramAlreadyLinkedError",
+    "TelegramConnectCompletion",
+    "TelegramConnectStart",
     "WeakPasswordError",
+    "catalog_package",
     "normalize_user_name",
 ]

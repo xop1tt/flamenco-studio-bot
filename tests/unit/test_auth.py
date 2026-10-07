@@ -130,9 +130,32 @@ class AuthServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(linked.telegram_id, 2002)
         self.assertEqual(linked.email, "anna@example.com")
 
-    async def test_cannot_link_telegram_already_linked_to_another_account(self):
-        await self.service.login_with_telegram(
+    async def test_linking_merges_account_created_only_by_telegram_login(self):
+        """Вход через Telegram создал аккаунт без email; привязка того же
+        Telegram к email-аккаунту объединяет их — у участника один аккаунт."""
+        shell = await self.service.login_with_telegram(
             sign_telegram_payload(make_telegram_payload(telegram_id=3003))
+        )
+        other = await self.service.register_with_email(
+            "bob@example.com", "correct-horse-battery-staple", "Боб"
+        )
+        linked = await self.service.link_telegram(
+            other.id,
+            sign_telegram_payload(make_telegram_payload(telegram_id=3003)),
+        )
+        self.assertEqual(linked.id, other.id)
+        self.assertIsNone(await self.repository.get_web_user_by_id(shell.id))
+        again = await self.service.login_with_telegram(
+            sign_telegram_payload(make_telegram_payload(telegram_id=3003))
+        )
+        self.assertEqual(again.id, other.id)
+
+    async def test_cannot_link_telegram_already_linked_to_another_account(self):
+        owner = await self.service.register_with_email(
+            "anna@example.com", "correct-horse-battery-staple", "Анна"
+        )
+        await self.service.link_telegram(
+            owner.id, sign_telegram_payload(make_telegram_payload(telegram_id=3003))
         )
         other = await self.service.register_with_email(
             "bob@example.com", "correct-horse-battery-staple", "Боб"

@@ -167,7 +167,15 @@ class ApiAuthTests(unittest.TestCase):
 
     def test_link_telegram_already_linked_to_other_account_returns_409(self):
         self.client.post(
-            "/api/auth/telegram",
+            "/api/auth/register",
+            json={
+                "email": "anna@example.com",
+                "password": "correct-horse-battery-staple",
+                "display_name": "Анна",
+            },
+        )
+        self.client.post(
+            "/api/auth/me/telegram",
             json=sign_telegram_payload(make_telegram_payload(telegram_id=4004)),
         )
         self.client.post("/api/auth/logout")
@@ -184,6 +192,28 @@ class ApiAuthTests(unittest.TestCase):
             json=sign_telegram_payload(make_telegram_payload(telegram_id=4004)),
         )
         self.assertEqual(response.status_code, 409)
+
+    def test_link_telegram_merges_telegram_only_account(self):
+        self.client.post(
+            "/api/auth/telegram",
+            json=sign_telegram_payload(make_telegram_payload(telegram_id=4004)),
+        )
+        self.client.post("/api/auth/logout")
+        self.client.post(
+            "/api/auth/register",
+            json={
+                "email": "bob@example.com",
+                "password": "correct-horse-battery-staple",
+                "display_name": "Боб",
+            },
+        )
+        response = self.client.post(
+            "/api/auth/me/telegram",
+            json=sign_telegram_payload(make_telegram_payload(telegram_id=4004)),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["email"], "bob@example.com")
+        self.assertEqual(response.json()["telegram_id"], 4004)
 
     def test_login_is_rate_limited_per_ip_after_too_many_attempts(self):
         self.client.post(

@@ -24,10 +24,12 @@ from ...database.repository import (
 )
 from ...presentation import (
     balance_line,
+    booking_cancellation_hint,
     can_cancel,
     cancellation_hint,
     format_class_time,
     plural,
+    source_line,
 )
 from ...services import AdminNotifier, BookingService
 from .screens import (
@@ -149,7 +151,11 @@ async def book_class_slot(
         await callback.answer(str(error), show_alert=True)
         return
 
-    credits = await repository.get_lesson_credits(sender.id)
+    credits = (
+        booking.balance
+        if booking.balance is not None
+        else await repository.get_lesson_credits(sender.id)
+    )
     lines = [
         "Вы уже записаны на это занятие."
         if booking.already_booked
@@ -159,13 +165,22 @@ async def book_class_slot(
         format_class_time(booking.starts_at),
         "",
     ]
-    if not booking.already_booked:
-        lines.append("Списано 1 занятие.")
-    lines.extend([balance_line(credits) + ".", cancellation_hint(booking.starts_at)])
+    hint = cancellation_hint(booking.starts_at)
+    cancellable = can_cancel(booking.starts_at)
+    if booking.already_booked:
+        # Уже существующая запись могла пережить перенос — срок отмены у неё
+        # свой (см. booking_cancellation_deadline).
+        existing = await find_upcoming_booking(repository, sender.id, slot_id)
+        if existing is not None:
+            hint = booking_cancellation_hint(existing)
+            cancellable = existing.can_cancel()
+    else:
+        lines.append(source_line(booking.source))
+    lines.extend([balance_line(credits) + ".", hint])
     rows = []
-    if can_cancel(booking.starts_at):
+    if cancellable:
         rows.append([button("Отменить запись", "cancel_booking:{}".format(slot_id))])
-    rows.append([button("📖 Мои занятия", "my"), button("Записаться ещё", "slots:all")])
+    rows.append([button("💃 Мои занятия", "my"), button("Записаться ещё", "slots:all")])
 
     await callback.answer(
         "Вы уже записаны." if booking.already_booked else "Вы записаны!"
@@ -202,9 +217,14 @@ async def find_upcoming_booking(
 
 
 def booking_summary(booking: UserBooking) -> str:
-    return "{}\n{}".format(
+    summary = "{}\n{}".format(
         CLASS_LABELS[booking.class_key], format_class_time(booking.starts_at)
     )
+    if booking.previous_starts_at is not None:
+        summary += "\nПеренесено студией, было {}".format(
+            format_class_time(booking.previous_starts_at)
+        )
+    return summary
 
 
 @router.callback_query(F.data.startswith("cancel_booking:"))
@@ -228,7 +248,7 @@ async def request_booking_cancel(callback: CallbackQuery, repository: Any) -> No
         text, reply_markup = await my_classes_screen(repository, telegram_id)
         await show(callback, text, reply_markup)
         return
-    if not can_cancel(booking.starts_at):
+    if not booking.can_cancel():
         await callback.answer(
             "Отменить уже нельзя — до начала меньше 24 часов.", show_alert=True
         )
@@ -281,7 +301,7 @@ async def cancel_booking_callback(callback: CallbackQuery, repository: Any) -> N
         return
 
     if not cancelled:
-        await callback.answer("Эта запись уже была отменена ранее.")
+        await callback.answer("Эта запись уже отменена (вами или студией).")
         text, reply_markup = await my_classes_screen(repository, telegram_id)
         await show(callback, text, reply_markup)
         return
@@ -295,5 +315,5 @@ async def cancel_booking_callback(callback: CallbackQuery, repository: Any) -> N
     await show(
         callback,
         "\n".join(lines),
-        markup([button("📖 Мои занятия", "my"), button(BOOK_BUTTON, "slots:all")]),
+        markup([button("💃 Мои занятия", "my"), button(BOOK_BUTTON, "slots:all")]),
     )

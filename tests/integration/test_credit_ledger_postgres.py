@@ -503,8 +503,10 @@ class CreditLedgerPostgresTests(unittest.IsolatedAsyncioTestCase):
         schema = "test_credits_mig_{}_{}".format(os.getpid(), time.time_ns())
         before = Path(tempfile.mkdtemp())
         try:
+            # Схема «до 010»: только миграции с меньшим номером (более поздние,
+            # 011+, опираются на столбцы из 010).
             for migration in MIGRATIONS.glob("*.sql"):
-                if not migration.name.startswith("010_"):
+                if migration.name.split("_", 1)[0] < "010":
                     shutil.copy(migration, before / migration.name)
             async with self.admin_pool.acquire() as connection:
                 await connection.execute('CREATE SCHEMA "{}"'.format(schema))

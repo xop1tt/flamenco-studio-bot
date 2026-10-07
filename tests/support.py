@@ -11,6 +11,7 @@ from flamenco_bot.database.repository import (
     UserStatistics,
     UserProfile,
 )
+from flamenco_bot.database.studio_models import NotificationSettings, PackageSummary
 
 
 class FakeMessage:
@@ -196,6 +197,35 @@ class FakeRepository:
         self.prepare_lesson_refund = AsyncMock()
         self.record_provider_refund = AsyncMock()
         self.complete_lesson_refund = AsyncMock(return_value=True)
+        # Жизненный цикл занятий, абонементы, история, уведомления.
+        self.get_package_summary = AsyncMock(side_effect=self._package_summary)
+        self.get_package_grant = AsyncMock(return_value=None)
+        self.grant_lesson_package = AsyncMock()
+        self.revoke_lesson_package_grant = AsyncMock()
+        self.get_class_slot = AsyncMock(return_value=None)
+        self.list_slot_participants = AsyncMock(return_value=[])
+        self.list_slot_events = AsyncMock(return_value=[])
+        self.reschedule_class_slot = AsyncMock()
+        self.cancel_class_slot = AsyncMock()
+        self.reopen_class_slot = AsyncMock(return_value=True)
+        self.list_credit_history = AsyncMock(return_value=[])
+        self.list_audit_events = AsyncMock(return_value=[])
+        self.enqueue_notification = AsyncMock(return_value=True)
+        self.list_notifications = AsyncMock(return_value=[])
+        self.count_unread_notifications = AsyncMock(return_value=0)
+        self.mark_notifications_read = AsyncMock(return_value=0)
+        self.get_notification_settings = AsyncMock(return_value=NotificationSettings())
+        self.update_notification_settings = AsyncMock(
+            return_value=NotificationSettings()
+        )
+        self.list_support_tickets_for_telegram_id = AsyncMock(return_value=[])
+        self.get_support_ticket_thread = AsyncMock(return_value=None)
+        self.reopen_support_ticket = AsyncMock(return_value=1001)
+
+    async def _package_summary(self, telegram_id):
+        """Баланс — из профиля, без абонементов (как у нового участника)."""
+        credits = self.profile.lesson_credits
+        return PackageSummary(balance=credits, packages=(), unallocated=credits)
 
 
 def make_record(

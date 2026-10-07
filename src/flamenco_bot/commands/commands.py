@@ -11,10 +11,12 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefaul
 def get_client_commands() -> list[BotCommand]:
     return [
         BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="schedule", description="Записаться — ближайшие занятия"),
+        BotCommand(command="schedule", description="Расписание и запись"),
         BotCommand(command="lessons", description="Мои занятия"),
-        BotCommand(command="buy", description="Абонементы"),
+        BotCommand(command="packages", description="Мои абонементы"),
+        BotCommand(command="buy", description="Купить абонемент"),
         BotCommand(command="account", description="Профиль"),
+        BotCommand(command="about", description="О студии и цены"),
         BotCommand(command="help", description="Помощь"),
         BotCommand(command="cancel", description="Отменить ввод"),
     ]
@@ -22,18 +24,15 @@ def get_client_commands() -> list[BotCommand]:
 
 def get_admin_commands() -> list[BotCommand]:
     return [
-        BotCommand(command="admin", description="Панель администратора"),
-        BotCommand(command="requests", description="Заявки для администратора"),
-        BotCommand(command="done", description="Закрыть заявку"),
-        BotCommand(command="slots", description="Управление слотами занятий"),
-        BotCommand(command="slot_add", description="Создать слот занятия"),
-        BotCommand(command="slot_capacity", description="Изменить вместимость слота"),
-        BotCommand(command="slot_close", description="Закрыть слот занятия"),
+        BotCommand(command="admin", description="Админ-меню"),
+        BotCommand(command="slots", description="Расписание занятий"),
+        BotCommand(command="slot", description="Карточка занятия: /slot ID"),
+        BotCommand(command="client", description="Карточка участника: /client ID"),
         BotCommand(command="support_tickets", description="Обращения поддержки"),
-        BotCommand(command="support_reply", description="Ответить на обращение"),
-        BotCommand(command="support_close", description="Закрыть обращение"),
         BotCommand(command="credits_adjust", description="Корректировка баланса"),
         BotCommand(command="credits_audit", description="Сверка баланса с ledger"),
+        BotCommand(command="ledger", description="Последние операции с балансом"),
+        BotCommand(command="audit", description="Журнал действий"),
     ]
 
 

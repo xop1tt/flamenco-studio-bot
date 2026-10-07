@@ -14,14 +14,22 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import time
-from typing import Any, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Mapping, Optional
 
 from ..database.repository import (
     EmailAlreadyRegisteredError,
     TelegramAlreadyLinkedError,
     WebUserRecord,
+)
+from ..database.studio_models import (
+    TELEGRAM_CONNECT_TTL,
+    TelegramConnectError,
+    TelegramConnectRequest,
 )
 
 
@@ -51,6 +59,43 @@ class InvalidTelegramAuthError(ValueError):
 
 class CannotUnlinkOnlyLoginMethodError(ValueError):
     """Нельзя отвязать Telegram, если это единственный способ входа в аккаунт."""
+
+
+# Токен в deep link: t.me/<бот>?start=c_<token>. Telegram допускает в
+# параметре start до 64 символов [A-Za-z0-9_-].
+CONNECT_START_PREFIX = "c_"
+CONNECT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32}$")
+
+
+@dataclass(frozen=True)
+class TelegramConnectStart:
+    """Новый запрос входа/привязки через бота.
+
+    ``browser_secret`` уходит только в httpOnly-cookie браузера, ``token`` —
+    в ссылку на бота; в БД хранятся их хеши.
+    """
+
+    token: str
+    browser_secret: str
+    deep_link: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class TelegramConnectCompletion:
+    # pending — ждём подтверждения в боте; completed — можно выдать сессию
+    # (только один раз); rejected — участник отказался; expired — ссылка
+    # устарела; used — запрос уже использован; unknown — нет такого запроса.
+    status: str
+    user: Optional[WebUserRecord] = None
+
+
+def mask_email(email: Optional[str]) -> str:
+    """«a***@example.org» — бот показывает, к какому аккаунту привязка."""
+    if not email or "@" not in email:
+        return "аккаунт сайта"
+    name, domain = email.split("@", 1)
+    return "{}***@{}".format(name[:1], domain)
 
 
 def hash_password(password: str) -> str:
@@ -213,7 +258,9 @@ class AuthService:
             is_admin=False,
         )
         try:
-            await self.repository.set_web_user_telegram_id(user_id, telegram_id)
+            # Аккаунт, созданный только входом через Telegram (без email),
+            # объединяется с этим — у участника остаётся один аккаунт.
+            await self.repository.link_telegram_to_web_user(user_id, telegram_id)
         except TelegramAlreadyLinkedError:
             logger.warning("Telegram link rejected: already linked user_id=%s", user_id)
             raise
@@ -239,6 +286,112 @@ class AuthService:
             raise LookupError("Аккаунт не найден")
         return updated
 
+    # ---------- вход и привязка через бота (deep link) ----------
+
+    async def start_telegram_connect(
+        self,
+        bot_username: str,
+        web_user_id: Optional[int] = None,
+    ) -> TelegramConnectStart:
+        """Создаёт запрос: вход (без аккаунта) или привязка (``web_user_id``)."""
+        token = secrets.token_urlsafe(24)
+        browser_secret = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + TELEGRAM_CONNECT_TTL
+        purpose = "link" if web_user_id is not None else "login"
+        await self.repository.create_telegram_connect_request(
+            token, browser_secret, purpose, web_user_id, expires_at
+        )
+        logger.info(
+            "Telegram connect started purpose=%s user_id=%s", purpose, web_user_id
+        )
+        return TelegramConnectStart(
+            token=token,
+            browser_secret=browser_secret,
+            deep_link="https://t.me/{}?start={}{}".format(
+                bot_username, CONNECT_START_PREFIX, token
+            ),
+            expires_at=expires_at,
+        )
+
+    async def describe_telegram_connect(self, token: str) -> TelegramConnectRequest:
+        """Запрос для экрана подтверждения в боте; ``TelegramConnectError``."""
+        if not CONNECT_TOKEN_PATTERN.fullmatch(token):
+            raise TelegramConnectError("Ссылка для входа недействительна")
+        request = await self.repository.get_telegram_connect_request(token)
+        if (
+            request is None
+            or request.status != "pending"
+            or request.expires_at <= datetime.now(timezone.utc)
+        ):
+            raise TelegramConnectError("Ссылка для входа недействительна или устарела")
+        return request
+
+    async def confirm_telegram_connect(
+        self,
+        token: str,
+        telegram_id: int,
+        display_name: str,
+    ) -> TelegramConnectRequest:
+        """Подтверждение кнопкой в боте: Telegram ID берётся из апдейта
+        Telegram (его подлинность гарантирует сам Telegram), а не из сайта."""
+        if not CONNECT_TOKEN_PATTERN.fullmatch(token):
+            raise TelegramConnectError("Ссылка для входа недействительна")
+        await self.repository.get_or_create_profile(
+            telegram_id=telegram_id,
+            user_name=display_name.strip() or "Участник студии",
+            is_admin=False,
+        )
+        request = await self.repository.confirm_telegram_connect_request(
+            token, telegram_id
+        )
+        logger.info(
+            "Telegram connect confirmed purpose=%s telegram_id=%s",
+            request.purpose,
+            telegram_id,
+        )
+        return request
+
+    async def reject_telegram_connect(self, token: str) -> bool:
+        if not CONNECT_TOKEN_PATTERN.fullmatch(token):
+            return False
+        return await self.repository.reject_telegram_connect_request(token)
+
+    async def complete_telegram_connect(
+        self, browser_secret: str
+    ) -> TelegramConnectCompletion:
+        """Браузер с секретом из cookie забирает подтверждённый запрос."""
+        request, consumed_now = await self.repository.consume_telegram_connect_request(
+            browser_secret
+        )
+        if request is None:
+            return TelegramConnectCompletion("unknown")
+        if not consumed_now:
+            if request.status == "pending":
+                expired = request.expires_at <= datetime.now(timezone.utc)
+                return TelegramConnectCompletion("expired" if expired else "pending")
+            if request.status == "confirmed":
+                return TelegramConnectCompletion("expired")
+            if request.status == "rejected":
+                return TelegramConnectCompletion("rejected")
+            return TelegramConnectCompletion("used")
+        if request.purpose == "link":
+            user = await self.repository.get_web_user_by_id(request.web_user_id)
+        else:
+            profile = await self.repository.get_profile(request.telegram_id)
+            user = await self.repository.get_or_create_web_user_from_telegram(
+                request.telegram_id,
+                profile.user_name if profile else "Участник студии",
+            )
+            user = await self.repository.get_web_user_by_id(user.id) or user
+        if user is None:
+            return TelegramConnectCompletion("unknown")
+        logger.info(
+            "Telegram connect completed purpose=%s user_id=%s",
+            request.purpose,
+            user.id,
+        )
+        return TelegramConnectCompletion("completed", user)
+
 
 __all__ = [
     "AuthService",
@@ -248,6 +401,9 @@ __all__ = [
     "InvalidTelegramAuthError",
     "MIN_PASSWORD_LENGTH",
     "TelegramAlreadyLinkedError",
+    "TelegramConnectCompletion",
+    "TelegramConnectStart",
+    "mask_email",
     "WeakPasswordError",
     "hash_password",
     "verify_password",

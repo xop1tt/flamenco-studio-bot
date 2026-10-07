@@ -3,13 +3,14 @@
 Тонкая обёртка над ``services.booking.BookingService`` — вместимость,
 повторная запись и гонки за последнее место проверяет репозиторий
 транзакционно (см. ``PostgresRepository.book_class_slot``), сервис и этот
-роутер не дублируют эту проверку.
+роутер не дублируют эту проверку. Запись и отмена с сайта ставят
+участнику уведомление в Telegram (outbox, отправка после commit).
 """
 
 import logging
-from typing import Any, List
+from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ...database.repository import (
     BookingCooldownError,
@@ -19,10 +20,12 @@ from ...database.repository import (
     SlotUnavailableError,
     WebUserRecord,
 )
-from ...services import BookingService
+from ...services import BookingService, HistoryService
+from ...services.history import booking_status
+from ...services.profile import upcoming_bookings
 from ..dependencies import (
     get_booking_service,
-    get_repository,
+    get_history_service,
     require_telegram_linked_user,
 )
 from ..schemas import (
@@ -50,7 +53,9 @@ async def create_booking(
     booking_service: BookingService = Depends(get_booking_service),
 ) -> BookingResponse:
     try:
-        booking = await booking_service.book(payload.slot_id, current_user.telegram_id)
+        booking = await booking_service.book(
+            payload.slot_id, current_user.telegram_id, notify_user=True
+        )
     except (
         SlotUnavailableError,
         InsufficientLessonCreditsError,
@@ -72,7 +77,9 @@ async def cancel_booking(
     booking_service: BookingService = Depends(get_booking_service),
 ) -> None:
     try:
-        await booking_service.cancel(slot_id, current_user.telegram_id)
+        await booking_service.cancel(
+            slot_id, current_user.telegram_id, notify_user=True
+        )
     except BookingNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     except CancellationWindowExpiredError as error:
@@ -81,8 +88,18 @@ async def cancel_booking(
 
 @router.get("/me", response_model=List[UserBookingResponse])
 async def list_my_bookings(
+    scope: Literal["all", "upcoming", "past"] = Query(default="all"),
     current_user: WebUserRecord = Depends(require_telegram_linked_user),
-    repository: Any = Depends(get_repository),
+    history_service: HistoryService = Depends(get_history_service),
 ) -> List[UserBookingResponse]:
-    bookings = await repository.list_bookings_for_telegram_id(current_user.telegram_id)
+    """Записи участника: все (по умолчанию, как раньше), предстоящие
+    действующие (``upcoming``, от ближайшей) или прошедшие и отменённые
+    (``past``)."""
+    bookings = await history_service.bookings(
+        current_user.telegram_id, limit=100, offset=0
+    )
+    if scope == "upcoming":
+        bookings = upcoming_bookings(bookings)
+    elif scope == "past":
+        bookings = [item for item in bookings if booking_status(item) != "upcoming"]
     return [UserBookingResponse.from_record(booking) for booking in bookings]

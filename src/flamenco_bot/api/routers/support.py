@@ -23,6 +23,7 @@ from ..dependencies import (
 from ..schemas import (
     SupportMessageRequest,
     SupportSubmissionResponse,
+    SupportThreadResponse,
     SupportTicketResponse,
 )
 
@@ -65,3 +66,22 @@ async def list_my_support_tickets(
         current_user.telegram_id
     )
     return [SupportTicketResponse.from_record(ticket) for ticket in tickets]
+
+
+@router.get("/me/{ticket_id}", response_model=SupportThreadResponse)
+async def read_my_support_ticket(
+    ticket_id: int,
+    current_user: WebUserRecord = Depends(require_telegram_linked_user),
+    repository: Any = Depends(get_repository),
+) -> SupportThreadResponse:
+    """Переписка по своему обращению (вопрос, ответы студии, закрытие).
+
+    Чужое обращение — 404, как и несуществующее: id не раскрывают, есть ли
+    такое обращение у другого участника.
+    """
+    thread = await repository.get_support_ticket_thread(
+        ticket_id, current_user.telegram_id
+    )
+    if thread is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Обращение не найдено")
+    return SupportThreadResponse.from_thread(thread)

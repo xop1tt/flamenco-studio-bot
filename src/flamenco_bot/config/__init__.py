@@ -69,6 +69,26 @@ def parse_studio_timezone(value: str) -> ZoneInfo:
         ) from error
 
 
+def parse_reminder_hours(value: str) -> int:
+    """За сколько часов до занятия напомнить участнику; 0 — не напоминать."""
+    try:
+        hours = int(value)
+    except ValueError as error:
+        raise ValueError("LESSON_REMINDER_HOURS должен быть целым числом") from error
+    if not 0 <= hours <= 72:
+        raise ValueError("LESSON_REMINDER_HOURS должен быть от 0 до 72")
+    return hours
+
+
+def parse_bot_username(value: str) -> Optional[str]:
+    username = value.strip().lstrip("@")
+    if not username:
+        return None
+    if not username.replace("_", "").isalnum() or not 5 <= len(username) <= 32:
+        raise ValueError("BOT_USERNAME должен быть именем бота, например mirada_bot")
+    return username
+
+
 def parse_website_url(value: str, env: str) -> Optional[str]:
     url = value.strip().rstrip("/")
     if not url:
@@ -139,6 +159,16 @@ class Config:
     WEBSITE_URL: Optional[str] = parse_website_url(
         os.getenv("WEBSITE_URL", ""), os.getenv("ENV", "development")
     )
+
+    # Напоминание о занятии: за столько часов до начала (0 — выключено).
+    # Приходит только тем, кто записался раньше этого срока.
+    LESSON_REMINDER_HOURS: int = parse_reminder_hours(
+        os.getenv("LESSON_REMINDER_HOURS", "3")
+    )
+
+    # Имя бота для ссылки входа на сайт через бота (t.me/<имя>?start=…).
+    # Необязательно: без него API один раз спрашивает имя у Telegram (getMe).
+    BOT_USERNAME: Optional[str] = parse_bot_username(os.getenv("BOT_USERNAME", ""))
 
     # Если токен не задан - ошибка
     if not BOT_TOKEN:

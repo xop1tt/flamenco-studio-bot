@@ -15,15 +15,19 @@ callback_data: так оно не теряется при сбросе FSM, пе
   my                                   «Мои занятия»
   cancel_booking:<slot_id>             запрос отмены → экран подтверждения
   cancel_ok:<slot_id>                  подтверждённая отмена
-  packs:<slot_id>                      список абонементов
+  packs:<slot_id>                      «Покупки»: каталог абонементов и счета
   pack:<package_key>:<slot_id>         абонемент и кнопка «Оплатить N ₽»
   pay:<package_key>:<price>:<slot_id>  создать платёж (цена сверяется с каталогом)
   bill:<payment_id>:<slot_id>          неоплаченный счёт: ссылка и проверка
   lesson_payment_check:<payment_id>[:<slot_id>]  проверить оплату
+  about                                «О студии»: направления, цены, правила
+
+Экраны личного кабинета (абонементы, история, уведомления, профиль,
+обращения) — в ``cabinet.py``.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional, Sequence
 
 from aiogram.exceptions import TelegramBadRequest
@@ -35,13 +39,12 @@ from ...payments import LessonPackage, PURCHASE_PACKAGES
 from ...presentation import (
     PLACE_FORMS,
     balance_line,
-    can_cancel,
     format_class_time,
     format_price,
     lessons_count,
     plural,
-    website_line,
 )
+from ...services.profile import upcoming_bookings
 
 
 logger = logging.getLogger("bot.handlers.screens")
@@ -49,7 +52,9 @@ logger = logging.getLogger("bot.handlers.screens")
 MAX_SLOTS_ON_SCREEN = 10
 SLOT_FILTERS = ("all", *CLASS_LABELS)
 BACK = "⬅️ Назад"
-BOOK_BUTTON = "🗓 Записаться"
+BOOK_BUTTON = "📅 Записаться"
+MY_CLASSES_BUTTON = "💃 Мои занятия"
+ABOUT_BUTTON = "ℹ️ О студии и цены"
 
 
 def button(text: str, data: str) -> InlineKeyboardButton:
@@ -60,12 +65,24 @@ def markup(*rows: Sequence[InlineKeyboardButton]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[list(row) for row in rows if row])
 
 
+# Лимит Telegram на текст сообщения — 4096 символов.
+MAX_MESSAGE_LENGTH = 4096
+
+
+def fit_message(text: str) -> str:
+    """Длинный экран (переписка, журнал) обрезается, а не роняет обработчик."""
+    if len(text) <= MAX_MESSAGE_LENGTH:
+        return text
+    return text[: MAX_MESSAGE_LENGTH - 2].rstrip() + "\n…"
+
+
 async def show(
     callback: CallbackQuery,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup],
 ) -> None:
     """Показывает экран в сообщении с нажатой кнопкой, иначе — новым."""
+    text = fit_message(text)
     message = callback.message
     edit = getattr(message, "edit_text", None)
     if edit is not None:
@@ -141,7 +158,7 @@ async def slots_screen(
     else:
         lines.append(
             "Сейчас свободных занятий{} нет. Загляните позже или напишите нам "
-            "в «💬 Помощь».".format(
+            "в «💬 Поддержка».".format(
                 " по этому направлению" if filter_key != "all" else ""
             )
         )
@@ -159,25 +176,24 @@ async def slots_screen(
         [button(slot_button_text(slot), "book:{}:{}".format(slot.class_key, slot.id))]
         for slot in slots
     )
+    rows.append([button(MY_CLASSES_BUTTON, "my"), button(ABOUT_BUTTON, "about")])
     return "\n".join(lines), markup(*rows)
 
 
 # ---------- Мои занятия ----------
 
 
-def upcoming_bookings(
-    bookings: Sequence[UserBooking],
-    now: Optional[datetime] = None,
-) -> list[UserBooking]:
-    current = now or datetime.now(timezone.utc)
-    return sorted(
-        (
-            booking
-            for booking in bookings
-            if booking.booking_status == "confirmed" and booking.starts_at > current
-        ),
-        key=lambda booking: booking.starts_at,
+def booking_line(booking: UserBooking, now: Optional[datetime] = None) -> str:
+    line = "• {} — {}".format(
+        format_class_time(booking.starts_at, now), CLASS_LABELS[booking.class_key]
     )
+    if booking.previous_starts_at is not None:
+        line += " (перенесено, было {})".format(
+            format_class_time(booking.previous_starts_at, now)
+        )
+    if not booking.can_cancel(now):
+        line += " (отмена уже недоступна)"
+    return line
 
 
 async def my_classes_screen(
@@ -191,26 +207,23 @@ async def my_classes_screen(
     credits = await repository.get_lesson_credits(telegram_id)
     lines = [notice, ""] if notice else []
     lines.extend(["Мои занятия", balance_line(credits) + "."])
+    history_row = [button("📚 История занятий", "hist:c:0")]
     if not upcoming:
         lines.extend(["", "Предстоящих занятий пока нет."])
         return "\n".join(lines), markup(
             [button(BOOK_BUTTON, "slots:all")],
-            [button("💳 Абонементы", "packs:0")],
+            [button("💳 Купить абонемент", "packs:0")],
+            history_row,
         )
 
     lines.append("")
-    for booking in upcoming:
-        line = "• {} — {}".format(
-            format_class_time(booking.starts_at), CLASS_LABELS[booking.class_key]
-        )
-        if not can_cancel(booking.starts_at):
-            line += " (отмена уже недоступна)"
-        lines.append(line)
+    lines.extend(booking_line(booking) for booking in upcoming)
     lines.extend(
         [
             "",
             "Отменить запись можно не позднее чем за 24 часа до начала — "
-            "занятие вернётся на баланс.",
+            "занятие вернётся на баланс. Если занятие перенесла студия, "
+            "отменить запись можно до нового начала.",
         ]
     )
     rows = [
@@ -224,9 +237,10 @@ async def my_classes_screen(
             )
         ]
         for booking in upcoming
-        if can_cancel(booking.starts_at)
+        if booking.can_cancel()
     ]
     rows.append([button(BOOK_BUTTON, "slots:all")])
+    rows.append(history_row)
     return "\n".join(lines), markup(*rows)
 
 
@@ -279,7 +293,7 @@ def packages_screen(
     bills: Sequence[LessonPaymentHistoryItem] = (),
 ) -> tuple[str, InlineKeyboardMarkup]:
     lines = [notice, ""] if notice else []
-    lines.extend(["Абонементы", balance_line(credits) + "."])
+    lines.extend(["Покупки", balance_line(credits) + "."])
     if bills:
         lines.extend(
             [
@@ -298,9 +312,6 @@ def packages_screen(
             "добавятся на баланс сразу после подтверждения оплаты.",
         ]
     )
-    history = website_line("История платежей — в личном кабинете на сайте")
-    if history:
-        lines.extend(["", history])
     rows = [
         [button(bill_title(bill), "bill:{}:{}".format(bill.id, slot_id))]
         for bill in bills
@@ -315,6 +326,14 @@ def packages_screen(
     )
     if slot_id:
         rows.append([button(BACK + " к занятиям", "slots:all")])
+    else:
+        rows.append(
+            [
+                button("🧾 История покупок", "purch:hist"),
+                button("🎟 Мои абонементы", "mypacks"),
+            ]
+        )
+        rows.append([button(ABOUT_BUTTON, "about")])
     return "\n".join(lines), markup(*rows)
 
 

@@ -9,7 +9,7 @@ PostgreSQL выглядит одинаково в боте и в браузер�
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from .config import Config
 from .database.repository import BOOKING_CANCELLATION_DEADLINE
@@ -82,3 +82,52 @@ def website_line(prefix: str = "Сайт студии") -> str:
     """Ссылка на сайт, если WEBSITE_URL задан (иначе пустая строка)."""
     url = Config.WEBSITE_URL
     return "{}: {}".format(prefix, url) if url else ""
+
+
+def format_date(moment: datetime) -> str:
+    """«02.10.2026» в поясе студии."""
+    return to_studio_time(moment).strftime("%d.%m.%Y")
+
+
+def format_amount(amount_minor: int) -> str:
+    return format_price(amount_minor // 100)
+
+
+def booking_cancellation_hint(booking: Any, now: Optional[datetime] = None) -> str:
+    """Срок отмены конкретной записи (учитывает перенос занятия студией)."""
+    if booking.can_cancel(now):
+        deadline = booking.cancellation_deadline
+        if deadline >= booking.starts_at:
+            return "Занятие перенесла студия — отменить запись можно до начала."
+        return "Отменить запись можно до {}.".format(format_class_time(deadline, now))
+    return "Отменить эту запись уже нельзя — до начала меньше 24 часов."
+
+
+PACKAGE_STATUS_LABELS = {
+    "active": "действует",
+    "used": "использован",
+    "refund_pending": "возврат оплаты в обработке",
+    "refunded": "оплата возвращена",
+    "revoked": "отозван студией",
+}
+
+
+def package_line(package: Any) -> str:
+    """«Абонемент на 8 занятий» — осталось 5 из 8 · с 02.10.2026."""
+    origin = " (от студии)" if package.kind == "grant" else ""
+    if package.status == "active":
+        state = "осталось {} из {}".format(package.remaining, package.lessons)
+    else:
+        state = PACKAGE_STATUS_LABELS.get(package.status, package.status)
+    return "«{}»{} — {} · с {}".format(
+        package.title, origin, state, format_date(package.acquired_at)
+    )
+
+
+def source_line(source: Any) -> str:
+    """Откуда списано занятие при записи."""
+    if source is None:
+        return "Списано 1 занятие с баланса."
+    return "Списано 1 занятие — «{}», осталось {} из {}.".format(
+        source.title, source.remaining, source.lessons
+    )

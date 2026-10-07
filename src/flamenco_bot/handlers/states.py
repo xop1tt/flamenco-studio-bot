@@ -27,3 +27,13 @@ class AdminForm(StatesGroup):
     waiting_for_restart_confirmation = State()
     waiting_for_scheduled_restart = State()
     waiting_for_credit_adjustment_confirmation = State()
+    # Админ-панель (handlers/admin_panel.py): ввод текста в сценариях.
+    waiting_for_slot_time = State()
+    waiting_for_slot_capacity = State()
+    waiting_for_reschedule_time = State()
+    waiting_for_cancel_reason = State()
+    waiting_for_capacity_change = State()
+    waiting_for_grant_reason = State()
+    waiting_for_revoke_reason = State()
+    waiting_for_support_reply = State()
+    waiting_for_client_adjustment = State()

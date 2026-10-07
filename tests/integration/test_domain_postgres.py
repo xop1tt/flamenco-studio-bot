@@ -149,7 +149,10 @@ class DomainPostgresTests(unittest.IsolatedAsyncioTestCase):
     # 3. Telegram уже привязан к другому веб-аккаунту.
     async def test_link_telegram_owned_by_another_web_account_is_rejected(self):
         auth = AuthService(self.repo, BOT_TOKEN)
-        telegram_user = await auth.login_with_telegram(signed_payload(300))
+        owner = await auth.register_with_email(
+            "owner@example.com", "long-password", "Владелец"
+        )
+        await auth.link_telegram(owner.id, signed_payload(300))
         email_user = await auth.register_with_email(
             "anna@example.com", "long-password", "Анна"
         )
@@ -161,8 +164,22 @@ class DomainPostgresTests(unittest.IsolatedAsyncioTestCase):
             (await self.repo.get_web_user_by_id(email_user.id)).telegram_id
         )
         self.assertEqual(
-            (await self.repo.get_web_user_by_id(telegram_user.id)).telegram_id, 300
+            (await self.repo.get_web_user_by_id(owner.id)).telegram_id, 300
         )
+
+    async def test_link_telegram_merges_account_created_by_telegram_login(self):
+        """Один участник — один аккаунт: аккаунт, созданный только входом
+        через Telegram (без email), объединяется с email-аккаунтом."""
+        auth = AuthService(self.repo, BOT_TOKEN)
+        telegram_user = await auth.login_with_telegram(signed_payload(300))
+        email_user = await auth.register_with_email(
+            "anna@example.com", "long-password", "Анна"
+        )
+
+        linked = await auth.link_telegram(email_user.id, signed_payload(300))
+
+        self.assertEqual(linked.id, email_user.id)
+        self.assertIsNone(await self.repo.get_web_user_by_id(telegram_user.id))
         async with self.pool.acquire() as connection:
             web_accounts = await connection.fetchval(
                 "SELECT COUNT(*) FROM users WHERE telegram_id = 300"
@@ -171,6 +188,8 @@ class DomainPostgresTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT COUNT(*) FROM bot_users WHERE telegram_id = 300"
             )
         self.assertEqual((web_accounts, profiles), (1, 1))
+        again = await auth.login_with_telegram(signed_payload(300))
+        self.assertEqual(again.id, email_user.id)
 
     # 4–5. Время из TIMESTAMPTZ — в Europe/Moscow, со сменой даты.
     async def test_slot_time_from_postgres_is_shown_in_studio_timezone(self):

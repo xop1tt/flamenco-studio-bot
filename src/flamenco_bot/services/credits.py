@@ -62,13 +62,34 @@ class CreditService:
         ``InsufficientLessonCreditsError`` (баланс ушёл бы ниже нуля).
         """
         normalized_reason = self.validate_adjustment(delta, reason)
-        return await self.repository.adjust_lesson_credits(
+        result = await self.repository.adjust_lesson_credits(
             telegram_id,
             delta,
             normalized_reason,
             actor_telegram_id,
             idempotence_key,
         )
+        if result.applied:
+            # Корректировка уже зафиксирована; уведомление участнику ставится
+            # отдельно и идемпотентно (ключ — строка ledger): его сбой не
+            # влияет на баланс.
+            try:
+                await self.repository.enqueue_notification(
+                    telegram_id,
+                    "credits_adjusted",
+                    {
+                        "delta": result.delta,
+                        "balance": result.balance,
+                        "reason": normalized_reason,
+                    },
+                    "credits_adjusted:{}".format(result.ledger_id),
+                )
+            except Exception:
+                logger.exception(
+                    "Credit adjustment notification not queued ledger_id=%s",
+                    result.ledger_id,
+                )
+        return result
 
     async def reconcile(self, limit: int = 20) -> CreditReconciliation:
         """Находит расхождения ``lesson_credits`` и суммы ledger; ничего не чинит."""

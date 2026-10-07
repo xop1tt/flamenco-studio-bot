@@ -257,7 +257,9 @@ class ClassBookingHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         await book_class_slot(self.callback, self.repository, self.state)
 
-        self.repository.book_class_slot.assert_awaited_once_with(5, 1001)
+        self.repository.book_class_slot.assert_awaited_once_with(
+            5, 1001, notify_user=False
+        )
         self.callback.answer.assert_awaited_once_with("Вы записаны!")
         text, markup = self.callback.screen
         for expected in (
@@ -314,7 +316,9 @@ class ClassBookingHandlerTests(unittest.IsolatedAsyncioTestCase):
         confirmed = FakeCallback("bookok:beginner:5")
         await book_class_slot(confirmed, self.repository, self.state)
 
-        self.repository.book_class_slot.assert_awaited_once_with(5, 1001)
+        self.repository.book_class_slot.assert_awaited_once_with(
+            5, 1001, notify_user=False
+        )
         text, _ = confirmed.screen
         self.assertIn("Вы записаны", text)
 
@@ -331,7 +335,9 @@ class ClassBookingHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         await book_class_slot(self.callback, self.repository, self.state)
 
-        self.repository.book_class_slot.assert_awaited_once_with(5, 1001)
+        self.repository.book_class_slot.assert_awaited_once_with(
+            5, 1001, notify_user=False
+        )
 
     async def test_slot_taken_refreshes_the_list_without_success_message(self):
         self.repository.book_class_slot.side_effect = SlotUnavailableError("full")
@@ -417,7 +423,7 @@ class MyClassesHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Предстоящих занятий пока нет", text)
         self.assertEqual(
             callback_data(self.message.last_answer.kwargs["reply_markup"]),
-            ["slots:all", "packs:0"],
+            ["slots:all", "packs:0", "hist:c:0"],
         )
 
     async def test_cancel_button_asks_for_confirmation_first(self):
@@ -456,7 +462,9 @@ class MyClassesHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         await cancel_booking_callback(callback, self.repository)
 
-        self.repository.cancel_class_slot_booking.assert_awaited_once_with(5, 1001)
+        self.repository.cancel_class_slot_booking.assert_awaited_once_with(
+            5, 1001, notify_user=False
+        )
         callback.answer.assert_awaited_once_with("Запись отменена.")
         text, markup = callback.screen
         self.assertIn("Запись отменена", text)
@@ -470,7 +478,9 @@ class MyClassesHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         await cancel_booking_callback(callback, self.repository)
 
-        callback.answer.assert_awaited_once_with("Эта запись уже была отменена ранее.")
+        callback.answer.assert_awaited_once_with(
+            "Эта запись уже отменена (вами или студией)."
+        )
         text, _ = callback.screen
         self.assertIn("Мои занятия", text)
 

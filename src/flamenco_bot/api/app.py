@@ -23,6 +23,7 @@ from ..database import (
 from ..database.errors import DATABASE_UNAVAILABLE_ERRORS
 from ..payments import YooKassaClient
 from ..keyboards.user.screens import payment_confirmed_notifier
+from ..runtime.notifications import start_notification_worker
 from ..runtime.payment_reconciliation import start_reconciliation_task
 from ..runtime.security import AuthRateLimiter, SupportRateLimiter
 from ..services import AuthService, PaymentService
@@ -31,6 +32,8 @@ from .logging_config import configure_api_logging
 from .routers.auth import router as auth_router
 from .routers.bookings import router as bookings_router
 from .routers.classes import router as classes_router
+from .routers.history import router as history_router
+from .routers.notifications import router as notifications_router
 from .routers.packages import router as packages_router
 from .routers.payments import router as payments_router
 from .routers.schedule import router as schedule_router
@@ -107,12 +110,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         on_confirmed=payment_confirmed_notifier(bot, repository),
     )
     app.state.reconciliation_task = reconciliation_task
+    # Та же отправка уведомлений, что в боте: одновременно работает один
+    # процесс (advisory-блокировка), уведомления с сайта уходят и без бота.
+    notification_task = start_notification_worker(
+        repository, bot, logger, WebConfig.LESSON_REMINDER_HOURS
+    )
+    app.state.notification_task = notification_task
     try:
         yield
     finally:
+        background = [notification_task]
         if reconciliation_task is not None:
-            reconciliation_task.cancel()
-            await asyncio.gather(reconciliation_task, return_exceptions=True)
+            background.append(reconciliation_task)
+        for task in background:
+            task.cancel()
+        await asyncio.gather(*background, return_exceptions=True)
         await bot.session.close()
         await repository.close()
 
@@ -166,6 +178,8 @@ def create_app() -> FastAPI:
     app.include_router(support_router)
     app.include_router(users_router)
     app.include_router(payments_router)
+    app.include_router(history_router)
+    app.include_router(notifications_router)
 
     @app.get("/api/health")
     async def health() -> dict:

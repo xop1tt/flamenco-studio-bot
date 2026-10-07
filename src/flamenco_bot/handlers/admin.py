@@ -51,7 +51,7 @@ from ..services import (
 from ..class_catalog import CLASS_LABELS
 from ..studio_time import format_studio_datetime, parse_studio_datetime
 from ..database.repository import CLASS_KEYS, InsufficientLessonCreditsError
-from ..keyboards.admin import CLASS_SLOTS, SUPPORT_TICKETS
+from ..keyboards.user.screens import button, markup
 
 
 logger = logging.getLogger("bot.handlers.admin")
@@ -88,49 +88,6 @@ async def _deny_non_admin(message: Message, repository: Any) -> bool:
         message.from_user.id if message.from_user else None,
     )
     return True
-
-
-async def _show_class_slots(message: Message, repository: Any) -> None:
-    slots = await repository.list_class_slots(limit=30)
-    if not slots:
-        await message.answer(
-            "Будущих слотов пока нет.\n"
-            "Создать: /slot_add beginner 2030-10-02T18:00+04:00 8",
-            reply_markup=admin_menu_keyboard(),
-        )
-        return
-    lines = [
-        "Ближайшие слоты (максимум 30; ID | формат | дата/время | "
-        "занято/вместимость | статус):"
-    ]
-    lines.extend(
-        "{} | {} | {} | {}/{} | {}".format(
-            slot.id,
-            CLASS_LABELS[slot.class_key],
-            format_studio_datetime(slot.starts_at),
-            slot.booked_count,
-            slot.capacity,
-            "открыт" if slot.status == "open" else "закрыт",
-        )
-        for slot in slots
-    )
-    lines.extend(
-        [
-            "",
-            "Создать: /slot_add beginner 2030-10-02T18:00+04:00 8",
-            "Вместимость: /slot_capacity ID ЧИСЛО",
-            "Закрыть: /slot_close ID",
-        ]
-    )
-    await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
-
-
-@router.message(F.text == CLASS_SLOTS)
-@router.message(Command("slots"))
-async def show_class_slots(message: Message, repository: Any) -> None:
-    if await _deny_non_admin(message, repository):
-        return
-    await _show_class_slots(message, repository)
 
 
 @router.message(Command("slot_add"))
@@ -175,7 +132,7 @@ async def add_class_slot(message: Message, repository: Any) -> None:
             format_studio_datetime(slot.starts_at),
             slot.capacity,
         ),
-        reply_markup=admin_menu_keyboard(),
+        reply_markup=markup([button("Открыть занятие", "a:s:{}".format(slot.id))]),
     )
     actions_logger().info(
         "action=create_class_slot admin_id=%s slot_id=%s class_key=%s capacity=%s",
@@ -198,7 +155,9 @@ async def change_class_slot_capacity(message: Message, repository: Any) -> None:
         return
     slot_id, capacity = int(parts[1]), int(parts[2])
     try:
-        updated = await repository.update_class_slot_capacity(slot_id, capacity)
+        updated = await repository.update_class_slot_capacity(
+            slot_id, capacity, admin_id
+        )
     except ValueError as error:
         await message.answer("Не удалось изменить вместимость: {}.".format(error))
         return
@@ -225,7 +184,7 @@ async def close_class_slot(message: Message, repository: Any) -> None:
         await message.answer("Формат: /slot_close ID")
         return
     slot_id = int(parts[1])
-    if not await repository.close_class_slot(slot_id):
+    if not await repository.close_class_slot(slot_id, admin_id):
         await message.answer("Открытый слот с таким ID не найден.")
         return
     await message.answer("Слот №{} закрыт для новых записей.".format(slot_id))
@@ -234,30 +193,6 @@ async def close_class_slot(message: Message, repository: Any) -> None:
         admin_id,
         slot_id,
     )
-
-
-@router.message(F.text == SUPPORT_TICKETS)
-async def show_support_tickets(message: Message, repository: Any) -> None:
-    if await _deny_non_admin(message, repository):
-        return
-    tickets = await repository.list_open_support_tickets(limit=20)
-    lines = [
-        "Открытых обращений нет."
-        if not tickets
-        else (
-            "Открытые обращения (ответ: /support_reply ID текст; "
-            "закрыть: /support_close ID):"
-        )
-    ]
-    lines.extend(
-        "№{} | пользователь {} | {}".format(
-            ticket.id,
-            ticket.telegram_id,
-            ticket.last_message.replace("\n", " ")[:120],
-        )
-        for ticket in tickets
-    )
-    await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
 
 
 def _parse_telegram_id(value: Optional[str]) -> Optional[int]:
@@ -613,16 +548,30 @@ async def search_participants(
         )
         return
 
-    lines = ["Найденные участники (максимум 20):"]
+    lines = ["Найденные участники (максимум 20) — нажмите, чтобы открыть карточку:"]
     for profile in profiles:
         lines.append(
-            "ID: {} | {} | телефон: {}".format(
+            "ID: {} | {} | телефон: {} | баланс: {}".format(
                 profile.telegram_id,
                 profile.user_name,
                 profile.phone or "не указан",
+                profile.lesson_credits,
             )
         )
-    await message.answer("\n".join(lines), reply_markup=admin_menu_keyboard())
+    await message.answer(
+        "\n".join(lines),
+        reply_markup=markup(
+            *(
+                [
+                    button(
+                        "{} · {}".format(profile.user_name[:40], profile.telegram_id),
+                        "a:c:{}".format(profile.telegram_id),
+                    )
+                ]
+                for profile in profiles
+            )
+        ),
+    )
     actions_logger().info(
         "action=search admin_id=%s query_length=%s results=%s",
         await _admin_id(message, repository),
@@ -998,9 +947,27 @@ async def start_credit_adjustment(
     ):
         await message.answer(CREDIT_ADJUSTMENT_FORMAT)
         return
-    telegram_id, delta = int(parts[1]), int(parts[2])
+    await prepare_credit_adjustment(
+        message, state, repository, int(parts[1]), int(parts[2]), parts[3]
+    )
+
+
+async def prepare_credit_adjustment(
+    message: Message,
+    state: FSMContext,
+    repository: Any,
+    telegram_id: int,
+    delta: int,
+    reason_text: str,
+) -> None:
+    """Предпросмотр корректировки и ожидание подтверждения кнопкой.
+
+    Общий шаг для команды /credits_adjust и кнопки «± Баланс» в карточке
+    участника; сама операция — ``confirm_credit_adjustment``.
+    """
+    service = _credit_service(repository)
     try:
-        reason = service.validate_adjustment(delta, parts[3])
+        reason = service.validate_adjustment(delta, reason_text)
     except ValueError as error:
         await message.answer("{}.\n{}".format(error, CREDIT_ADJUSTMENT_FORMAT))
         return
@@ -1029,7 +996,7 @@ async def start_credit_adjustment(
         "Участник: {} (ID {})\n"
         "Изменение: {:+d}\n"
         "Баланс: {} → {}\n"
-        "Причина: {}\n\n"
+        "Причина: {} (её увидит участник в истории операций)\n\n"
         "Применить? Подтверждение действует {} мин.".format(
             profile.user_name,
             telegram_id,

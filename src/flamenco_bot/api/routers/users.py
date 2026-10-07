@@ -13,11 +13,23 @@ Follow-up в отчёте по этому этапу.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...database.repository import WebUserRecord
-from ..dependencies import get_repository, require_telegram_linked_user
-from ..schemas import ProfileResponse, UpdateProfileNameRequest
+from ...services import NotificationService, ProfileService
+from ..dependencies import (
+    get_notification_service,
+    get_profile_service,
+    get_repository,
+    require_telegram_linked_user,
+)
+from ..schemas import (
+    NotificationSettingsResponse,
+    OverviewResponse,
+    ProfileResponse,
+    UpdateNotificationSettingsRequest,
+    UpdateProfileNameRequest,
+)
 
 
 logger = logging.getLogger("bot.api.users")
@@ -42,3 +54,44 @@ async def update_my_profile_name(
     await repository.update_user_name(current_user.telegram_id, payload.user_name)
     profile = await repository.get_profile(current_user.telegram_id)
     return ProfileResponse.from_record(profile)
+
+
+@router.get("/me/overview", response_model=OverviewResponse)
+async def read_my_overview(
+    current_user: WebUserRecord = Depends(require_telegram_linked_user),
+    profile_service: ProfileService = Depends(get_profile_service),
+) -> OverviewResponse:
+    """Профиль, баланс по абонементам, ближайшие занятия, непрочитанные
+    уведомления — та же сводка, что «👤 Профиль» в боте."""
+    try:
+        overview = await profile_service.overview(current_user.telegram_id)
+    except LookupError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Профиль не найден") from error
+    return OverviewResponse.from_overview(overview)
+
+
+@router.get("/me/notification-settings", response_model=NotificationSettingsResponse)
+async def read_notification_settings(
+    current_user: WebUserRecord = Depends(require_telegram_linked_user),
+    service: NotificationService = Depends(get_notification_service),
+) -> NotificationSettingsResponse:
+    return NotificationSettingsResponse.from_settings(
+        await service.settings(current_user.telegram_id)
+    )
+
+
+@router.patch("/me/notification-settings", response_model=NotificationSettingsResponse)
+async def update_notification_settings(
+    payload: UpdateNotificationSettingsRequest,
+    current_user: WebUserRecord = Depends(require_telegram_linked_user),
+    service: NotificationService = Depends(get_notification_service),
+) -> NotificationSettingsResponse:
+    """Отключить можно только напоминания и сообщение о малом остатке —
+    об отмене/переносе занятия и изменении баланса бот сообщает всегда."""
+    return NotificationSettingsResponse.from_settings(
+        await service.update_settings(
+            current_user.telegram_id,
+            reminders=payload.reminders,
+            low_balance=payload.low_balance,
+        )
+    )

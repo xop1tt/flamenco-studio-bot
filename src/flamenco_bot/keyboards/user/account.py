@@ -14,12 +14,13 @@ from . import (
     PROFILE_NAME,
     PROFILE_PHONE,
     input_keyboard,
+    main_menu_keyboard,
     phone_request_keyboard,
-    profile_keyboard,
 )
 from .main_menu import ensure_profile
 from ...handlers.states import AccountForm
 from ...presentation import balance_line, website_line
+from ...runtime.admin_access import get_admin_id
 from ...services import InvalidUserNameError, normalize_user_name
 
 
@@ -49,17 +50,27 @@ async def profile_text(message: Message, repository: Any) -> str:
     )
 
 
+async def _menu(message: Message, repository: Any):
+    """После ввода имени/телефона — снова главное меню вместо поля ввода."""
+    return main_menu_keyboard(
+        is_admin=await get_admin_id(message, repository) is not None
+    )
+
+
 @router.message(F.text == PROFILE)
 async def open_profile(
     message: Message,
     state: FSMContext,
     repository: Any,
 ) -> None:
+    """Профиль: сводка (баланс, абонементы, ближайшие занятия) и быстрые
+    действия inline-кнопками — см. ``cabinet.profile_screen``."""
+    from .cabinet import profile_screen
+
     await state.clear()
-    await message.answer(
-        await profile_text(message, repository),
-        reply_markup=profile_keyboard(),
-    )
+    profile = await ensure_profile(message, repository)
+    text, reply_markup = await profile_screen(repository, profile.telegram_id)
+    await message.answer(text, reply_markup=reply_markup)
     logger.info(
         "Opened profile telegram_id=%s",
         message.from_user.id if message.from_user else None,
@@ -144,9 +155,9 @@ async def verify_phone_code(
         await state.clear()
         logger.warning("Phone verification expired telegram_id=%s", sender.id)
         await message.answer(
-            "Срок действия кода истёк. Чтобы изменить телефон, нажмите "
-            "«📱 Изменить телефон» ещё раз.",
-            reply_markup=profile_keyboard(),
+            "Срок действия кода истёк. Чтобы изменить телефон, откройте "
+            "«👤 Профиль» → «📱 Телефон» ещё раз.",
+            reply_markup=await _menu(message, repository),
         )
         return
 
@@ -165,9 +176,9 @@ async def verify_phone_code(
         if attempts >= PHONE_CODE_MAX_ATTEMPTS:
             await state.clear()
             await message.answer(
-                "Лимит попыток исчерпан. Чтобы изменить телефон, нажмите "
-                "«📱 Изменить телефон» ещё раз.",
-                reply_markup=profile_keyboard(),
+                "Лимит попыток исчерпан. Чтобы изменить телефон, откройте "
+                "«👤 Профиль» → «📱 Телефон» ещё раз.",
+                reply_markup=await _menu(message, repository),
             )
             logger.warning(
                 "Phone verification attempts exhausted telegram_id=%s",
@@ -197,7 +208,7 @@ async def verify_phone_code(
     await state.clear()
     await message.answer(
         "Телефон подтверждён и сохранён.\n\n" + await profile_text(message, repository),
-        reply_markup=profile_keyboard(),
+        reply_markup=await _menu(message, repository),
     )
     logger.info("Verified and saved phone telegram_id=%s", sender.id)
 
@@ -214,8 +225,8 @@ async def save_name(
         await state.clear()
         await message.answer(
             "Ввод имени отменён — прошло слишком много времени. Чтобы изменить "
-            "имя, нажмите «✏️ Изменить имя» ещё раз.",
-            reply_markup=profile_keyboard(),
+            "имя, откройте «👤 Профиль» → «✏️ Имя» ещё раз.",
+            reply_markup=await _menu(message, repository),
         )
         return
     try:
@@ -237,6 +248,6 @@ async def save_name(
     await state.clear()
     await message.answer(
         "Имя сохранено.\n\n" + await profile_text(message, repository),
-        reply_markup=profile_keyboard(),
+        reply_markup=await _menu(message, repository),
     )
     logger.info("Saved profile name telegram_id=%s", sender.id)

@@ -30,6 +30,7 @@ from . import (
     PACKAGES,
     PROFILE,
     PROFILE_PHONE,
+    PURCHASES,
     main_menu_keyboard,
 )
 from .navigation import cancel_current_action
@@ -107,10 +108,12 @@ def about_text() -> str:
         "Направления\n\n{}\n\n"
         "Стоимость\n{}\n\n"
         "Как записаться\n"
-        "1. Купите абонемент в «💳 Абонементы» — занятия появятся на балансе.\n"
-        "2. В «🗓 Записаться» выберите время — с баланса спишется 1 занятие.\n"
+        "1. Купите абонемент в «💳 Покупки» — занятия появятся на балансе.\n"
+        "2. В «📅 Расписание» выберите время — с баланса спишется 1 занятие.\n"
         "3. Отменить запись можно не позднее чем за 24 часа до начала — "
-        "занятие вернётся на баланс.\n\n"
+        "занятие вернётся на баланс. Если студия перенесла занятие, запись "
+        "можно отменить до нового начала; если отменила — занятие вернётся "
+        "на баланс автоматически.\n\n"
         "Первое занятие\n"
         "Приходите за 10–15 минут до начала — познакомимся, расскажем, как "
         "проходит занятие, поможем с первыми движениями. Никакой специальной "
@@ -152,6 +155,18 @@ async def open_my_classes(message: Message, state: FSMContext, repository: Any) 
 
 @router.message(F.text == PACKAGES)
 async def open_packages(message: Message, state: FSMContext, repository: Any) -> None:
+    """«🎟 Абонементы»: действующие абонементы и остатки."""
+    from .cabinet import my_packages_screen
+
+    await state.clear()
+    profile = await ensure_profile(message, repository)
+    text, reply_markup = await my_packages_screen(repository, profile.telegram_id)
+    await message.answer(text, reply_markup=reply_markup)
+
+
+@router.message(F.text == PURCHASES)
+async def open_purchases(message: Message, state: FSMContext, repository: Any) -> None:
+    """«💳 Покупки»: каталог, неоплаченные счета, история покупок."""
     await state.clear()
     profile = await ensure_profile(message, repository)
     text, reply_markup = await packages_view(repository, profile.telegram_id)
@@ -164,7 +179,7 @@ async def show_about(message: Message, state: FSMContext) -> None:
     await message.answer(
         about_text(),
         reply_markup=markup(
-            [button(BOOK_BUTTON, "slots:all"), button("💳 Абонементы", "packs:0")]
+            [button(BOOK_BUTTON, "slots:all"), button("💳 Купить абонемент", "packs:0")]
         ),
     )
 
@@ -221,7 +236,13 @@ async def open_legacy_section(
     telegram_id = profile.telegram_id
     if target == BOOK:
         text, reply_markup = await slots_screen(repository, telegram_id)
+    elif target == MY_CLASSES:
+        text, reply_markup = await my_classes_screen(repository, telegram_id)
     elif target == PACKAGES:
+        from .cabinet import my_packages_screen
+
+        text, reply_markup = await my_packages_screen(repository, telegram_id)
+    elif target == PURCHASES:
         text, reply_markup = await packages_view(repository, telegram_id)
     elif target == ABOUT:
         await show_about(message, state)

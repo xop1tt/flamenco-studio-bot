@@ -2,9 +2,10 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from ..database.repository import MAX_SUPPORT_MESSAGE_LENGTH
+from ..database.studio_models import SupportTicketThread
 from ..runtime.security import SupportRateLimiter
 from .notifications import AdminNotifier, NotificationReport
 
@@ -89,3 +90,25 @@ class SupportService:
             report.delivered,
         )
         return SupportSubmission(ticket_id, created, report)
+
+    async def thread(
+        self,
+        ticket_id: int,
+        telegram_id: Optional[int] = None,
+    ) -> Optional[SupportTicketThread]:
+        """Обращение с перепиской; ``telegram_id`` — только своё обращение."""
+        return await self.repository.get_support_ticket_thread(ticket_id, telegram_id)
+
+    async def reopen(self, ticket_id: int, admin_telegram_id: int) -> Optional[int]:
+        """``SupportTicketStateError`` — уже открыто или у участника есть
+        другое открытое обращение."""
+        user_id = await self.repository.reopen_support_ticket(
+            ticket_id, admin_telegram_id
+        )
+        if user_id is not None:
+            logger.info(
+                "Support ticket reopened ticket_id=%s admin_id=%s",
+                ticket_id,
+                admin_telegram_id,
+            )
+        return user_id

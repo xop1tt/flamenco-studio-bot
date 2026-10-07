@@ -40,10 +40,11 @@ async def start_support(
     await state.set_state(SupportForm.waiting_for_message)
     await state.update_data(support_started_at=time.time())
     await message.answer(
-        "Помощь\n\n"
+        "Поддержка\n\n"
         "Напишите вопрос одним сообщением (до 2000 символов) — его получат "
         "администраторы студии, ответ придёт в этот чат.\n\n"
-        "Направления, цены и правила записи — в «💃 О студии». "
+        "Направления, цены и правила записи — /about. Прежние обращения "
+        "и ответы — «👤 Профиль» → «📨 Мои обращения». "
         "Передумали писать — нажмите «❌ Отмена».",
         reply_markup=input_keyboard(),
     )
@@ -89,7 +90,7 @@ async def submit_support_message(
         await state.clear()
         await message.answer(
             "Сообщение не отправлено: обращение было начато слишком давно. "
-            "Чтобы написать в студию, нажмите «💬 Помощь» ещё раз.",
+            "Чтобы написать в студию, нажмите «💬 Поддержка» ещё раз.",
             reply_markup=main_menu_keyboard(
                 is_admin=await get_admin_id(message, repository) is not None
             ),
@@ -134,7 +135,7 @@ async def submit_support_message(
     else:
         confirmation = (
             "Сообщение отправлено (обращение №{}). Ответ придёт в этот чат. "
-            "Чтобы дописать, снова нажмите «💬 Помощь»."
+            "Чтобы дописать, снова нажмите «💬 Поддержка»."
         ).format(submission.ticket_id)
     await message.answer(
         confirmation,
@@ -191,10 +192,26 @@ async def reply_to_support_ticket(message: Message, repository: Any) -> None:
     if not body or len(body) > 2000:
         await message.answer("Ответ должен содержать от 1 до 2000 символов.")
         return
+    await message.answer(
+        await deliver_support_reply(bot, repository, ticket_id, admin_id, body)
+    )
+
+
+async def deliver_support_reply(
+    bot: Any,
+    repository: Any,
+    ticket_id: int,
+    admin_id: int,
+    body: str,
+) -> str:
+    """Сохраняет ответ администратора и отправляет его участнику.
+
+    Возвращает текст результата для администратора. Общий шаг для
+    /support_reply и кнопки «Ответить» в админ-панели.
+    """
     user_id = await repository.reply_support_ticket(ticket_id, admin_id, body)
     if user_id is None:
-        await message.answer("Открытое обращение с таким номером не найдено.")
-        return
+        return "Открытое обращение с таким номером не найдено."
     try:
         await bot.send_message(
             user_id,
@@ -208,18 +225,17 @@ async def reply_to_support_ticket(message: Message, repository: Any) -> None:
             user_id,
             type(error).__name__,
         )
-        await message.answer(
+        return (
             "Ответ сохранён, но Telegram не доставил его пользователю. "
             "Проверьте, что пользователь не заблокировал бота."
         )
-        return
-    await message.answer("Ответ по обращению №{} доставлен.".format(ticket_id))
     logger.info(
         "Support reply delivered ticket_id=%s admin_id=%s user_id=%s",
         ticket_id,
         admin_id,
         user_id,
     )
+    return "Ответ по обращению №{} доставлен.".format(ticket_id)
 
 
 @router.message(Command("support_close"))
@@ -236,10 +252,19 @@ async def close_support_ticket(message: Message, repository: Any) -> None:
         await message.answer("Формат: /support_close ID")
         return
     ticket_id = int(parts[1])
-    user_id = await repository.close_support_ticket(ticket_id, admin_id)
-    if user_id is None:
+    if not await close_ticket_and_notify(bot, repository, ticket_id, admin_id):
         await message.answer("Открытое обращение с таким номером не найдено.")
         return
+    await message.answer("Обращение №{} закрыто.".format(ticket_id))
+
+
+async def close_ticket_and_notify(
+    bot: Any, repository: Any, ticket_id: int, admin_id: int
+) -> bool:
+    """Закрывает обращение и сообщает участнику; ``False`` — не найдено."""
+    user_id = await repository.close_support_ticket(ticket_id, admin_id)
+    if user_id is None:
+        return False
     try:
         await bot.send_message(
             user_id,
@@ -252,13 +277,13 @@ async def close_support_ticket(message: Message, repository: Any) -> None:
             user_id,
             type(error).__name__,
         )
-    await message.answer("Обращение №{} закрыто.".format(ticket_id))
     logger.info(
         "Support ticket closed ticket_id=%s admin_id=%s user_id=%s",
         ticket_id,
         admin_id,
         user_id,
     )
+    return True
 
 
 __all__ = ["router"]

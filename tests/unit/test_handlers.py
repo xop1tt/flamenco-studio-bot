@@ -44,7 +44,6 @@ from flamenco_bot.handlers.support import start_support
 from flamenco_bot.keyboards.user import (
     main_menu_keyboard,
     phone_request_keyboard,
-    profile_keyboard,
 )
 from flamenco_bot.keyboards.user.account import (
     open_profile,
@@ -61,6 +60,7 @@ from flamenco_bot.keyboards.user.main_menu import (
     open_legacy_section,
     open_my_classes,
     open_packages,
+    open_purchases,
     show_about,
     show_main_menu,
 )
@@ -156,13 +156,16 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
     async def test_help_shows_admin_commands_only_to_admins(self):
         await help_command(self.message, self.state, self.repository)
         text = self.message.last_answer.args[0]
-        self.assertIn("🗓 Записаться", text)
-        self.assertNotIn("/requests", text)
+        self.assertIn("📅 Расписание", text)
+        self.assertIn("💳 Покупки", text)
+        self.assertNotIn("/client", text)
         self.state.clear.assert_awaited_once()
 
         self.repository.profile = replace(self.repository.profile, is_admin=True)
         self.repository.get_profile.return_value = self.repository.profile
         await help_command(self.message, self.state, self.repository)
+        self.assertIn("/client", self.message.last_answer.args[0])
+        # Прежние команды по-прежнему упомянуты для администратора.
         self.assertIn("/requests", self.message.last_answer.args[0])
 
     async def test_account_command_opens_profile_without_service_fields(self):
@@ -171,9 +174,10 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         for expected in ("Профиль", "Анна", "не указан", "Баланс: 0 занятий"):
             self.assertIn(expected, text)
         self.assertNotIn("Telegram ID", text)
-        self.assertEqual(
-            self.message.last_answer.kwargs["reply_markup"],
-            profile_keyboard(),
+        # Быстрые действия профиля — inline-кнопками в том же сообщении.
+        self.assertTrue(
+            {"prof:name", "prof:phone", "mypacks", "hist:o", "notif"}
+            <= set(callback_data(self.message.last_answer.kwargs["reply_markup"]))
         )
 
     async def test_commands_open_sections(self):
@@ -188,7 +192,14 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ЮKassa", self.message.last_answer.args[0])
         self.assertEqual(
             callback_data(self.message.last_answer.kwargs["reply_markup"]),
-            ["pack:single:0", "pack:pack_4:0", "pack:pack_8:0"],
+            [
+                "pack:single:0",
+                "pack:pack_4:0",
+                "pack:pack_8:0",
+                "purch:hist",
+                "mypacks",
+                "about",
+            ],
         )
 
     async def test_cancel_clears_fsm(self):
@@ -199,11 +210,12 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_returns_to_section_where_input_started(self):
         await self.state.set_state(AccountForm.waiting_for_phone_code)
         await cancel_command(self.message, self.state, self.repository)
+        # Профиль — inline-экран, поэтому после ввода возвращается главное меню.
         self.assertEqual(
             self.message.last_answer.kwargs["reply_markup"],
-            profile_keyboard(),
+            main_menu_keyboard(),
         )
-        self.assertIn("«Профиль»", self.message.last_answer.args[0])
+        self.assertIn("«👤 Профиль»", self.message.last_answer.args[0])
 
         await self.state.set_state(LessonForm.waiting_for_purchase_confirmation)
         await cancel_command(self.message, self.state, self.repository)
@@ -217,7 +229,7 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         await self.state.set_state(AdminForm.waiting_for_search)
         await cancel_command(self.message, self.state, self.repository)
         self.assertIn(
-            "🔎 Найти участника",
+            "👥 Клиенты",
             reply_labels(self.message.last_answer.kwargs["reply_markup"]),
         )
 
@@ -233,11 +245,12 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         await open_booking(self.message, self.state, self.repository)
         await open_my_classes(self.message, self.state, self.repository)
         await open_packages(self.message, self.state, self.repository)
+        await open_purchases(self.message, self.state, self.repository)
         await show_about(self.message, self.state)
         await open_profile(self.message, self.state, self.repository)
         await start_support(self.message, self.state)
         await cancel_from_menu(self.message, self.state, self.repository)
-        self.assertEqual(self.message.answer.await_count, 8)
+        self.assertEqual(self.message.answer.await_count, 9)
 
     async def test_about_explains_directions_prices_and_rules(self):
         await show_about(self.message, self.state)
@@ -373,14 +386,22 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
     async def test_fallback_is_clear_and_actionable(self):
         await fallback_message(self.message, self.repository)
         self.assertIn("/help", self.message.last_answer.args[0])
-        self.assertIn("💬 Помощь", self.message.last_answer.args[0])
+        self.assertIn("💬 Поддержка", self.message.last_answer.args[0])
 
     async def test_legacy_menu_buttons_open_new_sections_without_side_effects(self):
         self.message.text = "💳 Покупка занятий"
         await open_legacy_section(self.message, self.state, self.repository)
         first, second = self.message.answer.await_args_list[-2:]
         self.assertEqual(first.kwargs["reply_markup"], main_menu_keyboard())
-        self.assertIn("Абонементы", second.args[0])
+        self.assertIn("Покупки", second.args[0])
+
+        self.message.text = "💳 Абонементы"
+        await open_legacy_section(self.message, self.state, self.repository)
+        self.assertIn("🎟 Абонементы", self.message.last_answer.args[0])
+
+        self.message.text = "📖 Мои занятия"
+        await open_legacy_section(self.message, self.state, self.repository)
+        self.assertIn("Мои занятия", self.message.last_answer.args[0])
 
         self.message.text = "Разовое занятие — 1000 ₽"
         await open_legacy_section(self.message, self.state, self.repository)
@@ -396,8 +417,10 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
 
         self.message.text = "👤 Учетная запись"
         await open_legacy_section(self.message, self.state, self.repository)
-        self.assertEqual(
-            self.message.last_answer.kwargs["reply_markup"], profile_keyboard()
+        self.assertIn("👤 Профиль", self.message.last_answer.args[0])
+        self.assertIn(
+            "prof:name",
+            callback_data(self.message.last_answer.kwargs["reply_markup"]),
         )
 
     async def test_admin_commands_are_access_controlled(self):
@@ -411,11 +434,10 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
                 for button in row
             },
             {
-                "🔎 Найти участника",
-                "✏️ Изменить имя участника",
-                "📱 Изменить телефон участника",
-                "🗓 Слоты занятий",
+                "🗓 Расписание занятий",
+                "👥 Клиенты",
                 "📨 Обращения поддержки",
+                "💰 Финансы",
                 "🏠 Главное меню",
             },
         )
@@ -484,11 +506,22 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
         client = {command.command for command in get_client_commands()}
         self.assertEqual(
             client,
-            {"start", "schedule", "lessons", "buy", "account", "help", "cancel"},
+            {
+                "start",
+                "schedule",
+                "lessons",
+                "packages",
+                "buy",
+                "account",
+                "about",
+                "help",
+                "cancel",
+            },
         )
         full = {command.command for command in get_bot_commands()}
-        self.assertTrue({"admin", "requests", "done", "slot_add"} <= full)
-        self.assertFalse({"admin", "requests", "done", "slot_add"} & client)
+        admin_only = {"admin", "slots", "slot", "client", "ledger", "audit"}
+        self.assertTrue(admin_only <= full)
+        self.assertFalse(admin_only & client)
 
     async def test_register_commands_scopes_admin_menu_to_admin_chats(self):
         bot = SimpleNamespace(set_my_commands=AsyncMock())
@@ -502,7 +535,7 @@ class BotFunctionTests(unittest.IsolatedAsyncioTestCase):
             {c.command for c in get_client_commands()},
         )
         self.assertEqual(admin_call.kwargs["scope"], BotCommandScopeChat(chat_id=77))
-        self.assertIn("requests", {c.command for c in admin_call.args[0]})
+        self.assertIn("client", {c.command for c in admin_call.args[0]})
 
 
 class PurchaseFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -737,7 +770,7 @@ class PurchaseFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("уже оплачен или закрыт", bill.answer.await_args.args[0])
         text, _ = bill.screen
-        self.assertIn("Абонементы", text)
+        self.assertIn("Покупки", text)
 
     async def test_background_confirmation_message_shows_credits_and_next_step(self):
         bot = SimpleNamespace(send_message=AsyncMock())

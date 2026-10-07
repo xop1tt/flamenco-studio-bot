@@ -42,7 +42,7 @@ from .screens import (
 logger = logging.getLogger("bot.handlers.purchases")
 router = Router(name="purchases_keyboard")
 
-HELP_HINT = "напишите в «💬 Помощь» — администратор проверит платёж"
+HELP_HINT = "напишите в «💬 Поддержка» — администратор проверит платёж"
 
 
 @router.callback_query(F.data.startswith("packs:"))
@@ -108,7 +108,7 @@ async def pay_for_package(
         await show(
             callback,
             "Оплата недоступна — онлайн-оплата сейчас не подключена. Напишите "
-            "в «💬 Помощь», подскажем, как оплатить абонемент.",
+            "в «💬 Поддержка», подскажем, как оплатить абонемент.",
             None,
         )
         return
@@ -283,7 +283,7 @@ async def check_lesson_payment(
     elif status in (PaymentCheckStatus.CANCELED, PaymentCheckStatus.PROVIDER_CANCELED):
         await callback.answer(
             "Платёж отменён. Чтобы купить абонемент, выберите его заново "
-            "в «💳 Абонементы».",
+            "в «💳 Покупки».",
             show_alert=True,
         )
     elif status is PaymentCheckStatus.REFUND_PENDING:
@@ -298,14 +298,14 @@ async def check_lesson_payment(
         )
     elif status is PaymentCheckStatus.MISMATCH:
         await callback.answer(
-            "Данные платежа не совпали. Напишите в «💬 Помощь».",
+            "Данные платежа не совпали. Напишите в «💬 Поддержка».",
             show_alert=True,
         )
     elif status is PaymentCheckStatus.STATUS_CHANGED:
         await callback.answer("Статус платежа изменился.")
         await callback.message.answer(
             "Статус платежа изменился во время проверки. Нажмите «Проверить "
-            "оплату» ещё раз через минуту или напишите в «💬 Помощь»."
+            "оплату» ещё раз через минуту или напишите в «💬 Поддержка»."
         )
     else:
         await callback.answer(
@@ -326,6 +326,6 @@ async def legacy_purchase_confirmation(message: Message, state: FSMContext) -> N
     """
     await state.clear()
     await message.answer(
-        "Чтобы купить абонемент, откройте «💳 Абонементы», выберите вариант "
+        "Чтобы купить абонемент, откройте «💳 Покупки», выберите вариант "
         "и нажмите кнопку «Оплатить». Сообщение в чате оплату не запускает."
     )
