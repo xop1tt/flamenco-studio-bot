@@ -4,9 +4,11 @@
 пользователю: они возвращают результат, а интерфейс решает, как его показать.
 """
 
+from .admin import AdminService
 from .auth import (
     AuthService,
     CannotUnlinkOnlyLoginMethodError,
+    CredentialsAlreadySetError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InvalidTelegramAuthError,
@@ -47,6 +49,7 @@ from .support import (
 
 __all__ = [
     "AdminNotifier",
+    "AdminService",
     "AuthService",
     "BookingService",
     "CannotUnlinkOnlyLoginMethodError",
@@ -55,6 +58,7 @@ __all__ = [
     "CheckoutUnavailableError",
     "ClientOverview",
     "CreditService",
+    "CredentialsAlreadySetError",
     "EmailAlreadyRegisteredError",
     "HistoryOperation",
     "HistoryService",

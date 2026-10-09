@@ -7,12 +7,13 @@
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Awaitable, Callable
 
 from aiogram import Bot
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ..database import (
     InMemoryRepository,
@@ -29,6 +30,8 @@ from ..runtime.security import AuthRateLimiter, SupportRateLimiter
 from ..services import AuthService, PaymentService
 from .config import WebConfig
 from .logging_config import configure_api_logging
+from .metrics import ProcessMetrics, RequestMetrics
+from .routers.admin import router as admin_router
 from .routers.auth import router as auth_router
 from .routers.bookings import router as bookings_router
 from .routers.classes import router as classes_router
@@ -167,6 +170,28 @@ async def internal_error_handler(request: Request, error: Exception) -> JSONResp
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Flamenco Studio API", lifespan=lifespan)
+    # Показатели нагрузки для окна администратора (/api/admin/metrics):
+    # создаются вместе с приложением, а не в lifespan — их видят и тесты.
+    app.state.request_metrics = RequestMetrics()
+    app.state.process_metrics = ProcessMetrics()
+
+    @app.middleware("http")
+    async def track_requests(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        request_metrics: RequestMetrics = app.state.request_metrics
+        request_metrics.started()
+        started = time.perf_counter()
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            request_metrics.finished(
+                (time.perf_counter() - started) * 1000, status_code
+            )
+
     for error_type in (*DATABASE_UNAVAILABLE_ERRORS, OSError):
         app.add_exception_handler(error_type, database_unavailable_handler)
     app.add_exception_handler(Exception, internal_error_handler)
@@ -180,6 +205,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(history_router)
     app.include_router(notifications_router)
+    app.include_router(admin_router)
 
     @app.get("/api/health")
     async def health() -> dict:

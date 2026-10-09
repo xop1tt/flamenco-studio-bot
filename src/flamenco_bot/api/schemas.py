@@ -77,12 +77,20 @@ class TelegramAuthRequest(BaseModel):
         return self.model_dump(exclude_none=True)
 
 
+class SetCredentialsRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class UserResponse(BaseModel):
     id: int
     email: Optional[str]
     telegram_id: Optional[int]
     display_name: str
     created_at: datetime
+    # Право администратора проверяет backend на каждом /api/admin/*;
+    # сайту флаг нужен только чтобы показать ссылку на админку и окно нагрузки.
+    is_admin: bool = False
 
     @classmethod
     def from_record(cls, record: WebUserRecord) -> "UserResponse":
@@ -92,6 +100,7 @@ class UserResponse(BaseModel):
             telegram_id=record.telegram_id,
             display_name=record.display_name,
             created_at=record.created_at,
+            is_admin=record.is_admin,
         )
 
 
@@ -644,3 +653,172 @@ class TelegramConnectStatusResponse(BaseModel):
     # устарела; used — запрос уже использован.
     status: str
     user: Optional[UserResponse] = None
+
+
+# ---------- админ-панель сайта ----------
+
+
+class AdminDashboardResponse(BaseModel):
+    slots_today: int
+    bookings_today: int
+    free_seats_today: int
+    slots_week: int
+    bookings_week: int
+    free_seats_week: int
+    total_profiles: int
+    total_web_users: int
+    new_profiles_today: int
+    new_web_users_today: int
+    online_users: int
+    sales_today_count: int
+    sales_today_rub: float
+    sales_month_count: int
+    sales_month_rub: float
+    pending_payments: int
+    open_tickets: int
+
+
+class AdminRequestStatsResponse(BaseModel):
+    window_seconds: int
+    total_since_start: int
+    in_flight: int
+    requests_last_minute: int
+    requests_in_window: int
+    errors_in_window: int
+    client_errors_in_window: int
+    avg_ms: Optional[float]
+    p95_ms: Optional[float]
+    max_ms: Optional[float]
+
+
+class AdminProcessStatsResponse(BaseModel):
+    pid: int
+    uptime_seconds: int
+    cpu_percent: Optional[float]
+    cpu_count: int
+    memory_rss_bytes: Optional[int]
+    memory_is_peak: bool
+    load_average: Optional[List[float]]
+    threads: int
+    asyncio_tasks: int
+    event_loop_lag_ms: float
+    python_version: str
+    platform: str
+
+
+class AdminDatabaseStatsResponse(BaseModel):
+    backend: str
+    ping_ms: float
+    pool_size: int
+    idle_connections: int
+    database_size_bytes: Optional[int]
+    connections: Optional[int]
+    active_web_sessions: int
+    notifications_pending: int
+    notifications_failed: int
+
+
+class AdminBackgroundTaskResponse(BaseModel):
+    name: str
+    running: bool
+
+
+class AdminMetricsResponse(BaseModel):
+    collected_at: datetime
+    requests: AdminRequestStatsResponse
+    process: AdminProcessStatsResponse
+    database: AdminDatabaseStatsResponse
+    background_tasks: List[AdminBackgroundTaskResponse]
+    online_users: int
+    open_tickets: int
+    pending_payments: int
+
+
+class AdminSlotResponse(ClassSlotResponse):
+    booked: int = 0
+
+    @classmethod
+    def from_record(cls, slot: ClassSlot) -> "AdminSlotResponse":
+        base = ClassSlotResponse.from_record(slot)
+        return cls(**base.model_dump(), booked=slot.booked_count)
+
+
+class AdminCreateSlotRequest(BaseModel):
+    class_key: str = Field(min_length=1, max_length=32)
+    # Время с часовым поясом (ISO 8601); без пояса — 422.
+    starts_at: datetime
+    capacity: int = Field(ge=1, le=100)
+
+
+class AdminUpdateSlotRequest(BaseModel):
+    capacity: Optional[int] = Field(default=None, ge=1, le=100)
+    starts_at: Optional[datetime] = None
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+class AdminCancelSlotRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+class AdminCancelSlotResponse(BaseModel):
+    slot: AdminSlotResponse
+    already_cancelled: bool
+    refunded_participants: int
+
+
+class AdminParticipantResponse(BaseModel):
+    booking_id: int
+    telegram_id: int
+    user_name: str
+    phone: Optional[str]
+    booked_at: datetime
+    status: str
+
+
+class AdminAccountResponse(BaseModel):
+    web_user_id: Optional[int]
+    email: Optional[str]
+    telegram_id: Optional[int]
+    name: str
+    phone: Optional[str]
+    lesson_credits: int
+    is_admin: bool
+    registered_at: datetime
+    last_seen_at: Optional[datetime]
+
+
+class AdminPaymentResponse(BaseModel):
+    id: int
+    telegram_id: int
+    user_name: Optional[str]
+    package_title: str
+    lessons: int
+    amount_rub: float
+    status: str
+    status_label: str
+    created_at: datetime
+
+
+class AdminSupportTicketResponse(BaseModel):
+    id: int
+    telegram_id: int
+    user_name: Optional[str]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    last_message: str
+
+
+class AdminSupportThreadResponse(SupportThreadResponse):
+    telegram_id: int
+    user_name: Optional[str]
+
+
+class AdminSupportReplyRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class AdminSupportActionResponse(BaseModel):
+    # delivered — ответ доставлен в Telegram; saved_not_delivered — сохранён,
+    # но Telegram не доставил; closed — обращение закрыто.
+    status: str

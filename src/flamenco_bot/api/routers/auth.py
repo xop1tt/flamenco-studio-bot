@@ -16,6 +16,7 @@ from ...runtime.security import AuthRateLimiter
 from ...services import (
     AuthService,
     CannotUnlinkOnlyLoginMethodError,
+    CredentialsAlreadySetError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InvalidTelegramAuthError,
@@ -36,6 +37,7 @@ from ..dependencies import (
 from ..schemas import (
     LoginRequest,
     RegisterRequest,
+    SetCredentialsRequest,
     TelegramAuthRequest,
     TelegramConnectRequestBody,
     TelegramConnectStartResponse,
@@ -173,6 +175,40 @@ async def read_current_user(
     current_user: WebUserRecord = Depends(get_current_user),
 ) -> UserResponse:
     return UserResponse.from_record(current_user)
+
+
+@router.post("/me/credentials", response_model=UserResponse)
+async def set_credentials(
+    payload: SetCredentialsRequest,
+    current_user: WebUserRecord = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    ip: str = Depends(client_ip),
+    limiter: AuthRateLimiter = Depends(get_auth_limiter),
+) -> UserResponse:
+    """Email и пароль для аккаунта, созданного входом через Telegram.
+
+    Дальше в тот же аккаунт можно входить и по email — второго аккаунта
+    не появляется. Если email уже занят другим аккаунтом — 409: нужно
+    войти в тот аккаунт и привязать Telegram там (аккаунты объединятся).
+    """
+    _enforce_auth_rate_limit(ip, limiter)
+    try:
+        user = await auth_service.set_email_credentials(
+            current_user.id, payload.email, payload.password
+        )
+    except EmailAlreadyRegisteredError as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Этот email уже зарегистрирован. Войдите по нему и привяжите "
+            "Telegram в личном кабинете — аккаунты объединятся.",
+        ) from error
+    except CredentialsAlreadySetError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+        ) from error
+    return UserResponse.from_record(user)
 
 
 @router.post("/me/telegram", response_model=UserResponse)

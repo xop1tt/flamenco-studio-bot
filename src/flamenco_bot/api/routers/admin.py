@@ -1,0 +1,357 @@
+"""Админ-панель сайта: ``/api/admin/*``.
+
+Каждый эндпоинт требует администратора (``require_admin``); изменяющие —
+ещё и привязанный Telegram (``require_admin_actor``): журналы расписания и
+поддержки в БД ведутся по Telegram ID, как в админке бота. Логика — в
+существующих сервисах и репозитории (те же, что у бота), здесь только
+HTTP-обёртка.
+"""
+
+import logging
+from datetime import datetime, timezone
+from typing import Any, List
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+
+from ...database.studio_models import SlotNotFoundError, SlotStateError
+from ...keyboards.user.cabinet import PAYMENT_STATUS_LABELS
+from ...services import AdminService, ScheduleService
+from ...services.support import (
+    SupportReplyStatus,
+    close_ticket_and_notify,
+    deliver_support_reply,
+)
+from ..dependencies import (
+    get_admin_service,
+    get_bot,
+    get_repository,
+    get_schedule_service,
+    require_admin,
+    require_admin_actor,
+)
+from ..schemas import (
+    MAX_DB_ID,
+    AdminAccountResponse,
+    AdminBackgroundTaskResponse,
+    AdminCancelSlotRequest,
+    AdminCancelSlotResponse,
+    AdminCreateSlotRequest,
+    AdminDashboardResponse,
+    AdminDatabaseStatsResponse,
+    AdminMetricsResponse,
+    AdminParticipantResponse,
+    AdminPaymentResponse,
+    AdminProcessStatsResponse,
+    AdminRequestStatsResponse,
+    AdminSlotResponse,
+    AdminSupportActionResponse,
+    AdminSupportReplyRequest,
+    AdminSupportThreadResponse,
+    AdminSupportTicketResponse,
+    AdminUpdateSlotRequest,
+    SupportThreadResponse,
+)
+
+
+logger = logging.getLogger("bot.api.admin")
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_admin)],
+)
+
+
+def _db_id() -> Any:
+    # BIGINT: вне диапазона — 422 валидацией, а не 500 из драйвера БД.
+    return Path(gt=0, le=MAX_DB_ID)
+
+
+def _rub(amount_minor: int) -> float:
+    return round(amount_minor / 100, 2)
+
+
+# ---------- сводка и нагрузка ----------
+
+
+@router.get("/dashboard", response_model=AdminDashboardResponse)
+async def dashboard(
+    admin_service: AdminService = Depends(get_admin_service),
+) -> AdminDashboardResponse:
+    data = await admin_service.dashboard()
+    return AdminDashboardResponse(
+        **{
+            key: value
+            for key, value in vars(data).items()
+            if key not in {"sales_today_minor", "sales_month_minor"}
+        },
+        sales_today_rub=_rub(data.sales_today_minor),
+        sales_month_rub=_rub(data.sales_month_minor),
+    )
+
+
+@router.get("/metrics", response_model=AdminMetricsResponse)
+async def metrics(
+    request: Request,
+    repository: Any = Depends(get_repository),
+    admin_service: AdminService = Depends(get_admin_service),
+) -> AdminMetricsResponse:
+    """Нагрузка для плавающего окна администратора (опрашивается раз в
+    несколько секунд): HTTP-запросы, процесс API, база, фоновые задачи."""
+    state = request.app.state
+    requests = state.request_metrics.snapshot()
+    process = await state.process_metrics.snapshot()
+    database = await repository.get_database_metrics()
+    summary = await admin_service.dashboard()
+    tasks = []
+    for name, attribute in (
+        ("Уведомления участникам", "notification_task"),
+        ("Сверка платежей ЮKassa", "reconciliation_task"),
+    ):
+        task = getattr(state, attribute, None)
+        if task is not None:
+            tasks.append(
+                AdminBackgroundTaskResponse(name=name, running=not task.done())
+            )
+    return AdminMetricsResponse(
+        collected_at=datetime.now(timezone.utc),
+        requests=AdminRequestStatsResponse(**vars(requests)),
+        process=AdminProcessStatsResponse(
+            **{
+                **vars(process),
+                "load_average": list(process.load_average)
+                if process.load_average
+                else None,
+            }
+        ),
+        database=AdminDatabaseStatsResponse(**vars(database)),
+        background_tasks=tasks,
+        online_users=summary.online_users,
+        open_tickets=summary.open_tickets,
+        pending_payments=summary.pending_payments,
+    )
+
+
+# ---------- расписание ----------
+
+
+@router.get("/slots", response_model=List[AdminSlotResponse])
+async def list_slots(
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> List[AdminSlotResponse]:
+    slots = await schedule.admin_schedule(limit=100)
+    return [AdminSlotResponse.from_record(slot) for slot in slots]
+
+
+async def _slot_or_404(schedule: ScheduleService, slot_id: int) -> Any:
+    slot = await schedule.get(slot_id)
+    if slot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Занятие не найдено")
+    return slot
+
+
+@router.post(
+    "/slots",
+    response_model=AdminSlotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_slot(
+    payload: AdminCreateSlotRequest,
+    admin_id: int = Depends(require_admin_actor),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> AdminSlotResponse:
+    try:
+        slot = await schedule.create(
+            payload.class_key, payload.starts_at, payload.capacity, admin_id
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)
+        ) from error
+    return AdminSlotResponse.from_record(slot)
+
+
+@router.patch("/slots/{slot_id}", response_model=AdminSlotResponse)
+async def update_slot(
+    payload: AdminUpdateSlotRequest,
+    slot_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> AdminSlotResponse:
+    await _slot_or_404(schedule, slot_id)
+    try:
+        if payload.capacity is not None:
+            await schedule.set_capacity(slot_id, payload.capacity, admin_id)
+        if payload.starts_at is not None:
+            await schedule.reschedule(
+                slot_id, payload.starts_at, admin_id, payload.reason
+            )
+    except SlotNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except (SlotStateError, ValueError) as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    return AdminSlotResponse.from_record(await _slot_or_404(schedule, slot_id))
+
+
+@router.post("/slots/{slot_id}/close", response_model=AdminSlotResponse)
+async def close_slot(
+    slot_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> AdminSlotResponse:
+    await _slot_or_404(schedule, slot_id)
+    if not await schedule.close(slot_id, admin_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Запись на занятие уже закрыта")
+    return AdminSlotResponse.from_record(await _slot_or_404(schedule, slot_id))
+
+
+@router.post("/slots/{slot_id}/reopen", response_model=AdminSlotResponse)
+async def reopen_slot(
+    slot_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> AdminSlotResponse:
+    await _slot_or_404(schedule, slot_id)
+    if not await schedule.reopen(slot_id, admin_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Открыть запись можно только на закрытое будущее занятие",
+        )
+    return AdminSlotResponse.from_record(await _slot_or_404(schedule, slot_id))
+
+
+@router.post("/slots/{slot_id}/cancel", response_model=AdminCancelSlotResponse)
+async def cancel_slot(
+    payload: AdminCancelSlotRequest,
+    slot_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> AdminCancelSlotResponse:
+    """Отмена занятия студией: каждому записанному возвращается занятие и
+    ставится уведомление (та же операция, что в админке бота)."""
+    try:
+        result = await schedule.cancel(slot_id, admin_id, payload.reason)
+    except SlotNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except (SlotStateError, ValueError) as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    return AdminCancelSlotResponse(
+        slot=AdminSlotResponse.from_record(result.slot),
+        already_cancelled=result.already_cancelled,
+        refunded_participants=len(result.refunds),
+    )
+
+
+@router.get(
+    "/slots/{slot_id}/participants",
+    response_model=List[AdminParticipantResponse],
+)
+async def slot_participants(
+    slot_id: int = _db_id(),
+    schedule: ScheduleService = Depends(get_schedule_service),
+) -> List[AdminParticipantResponse]:
+    await _slot_or_404(schedule, slot_id)
+    participants = await schedule.participants(slot_id, include_cancelled=True)
+    return [AdminParticipantResponse(**vars(item)) for item in participants]
+
+
+# ---------- пользователи и платежи ----------
+
+
+@router.get("/users", response_model=List[AdminAccountResponse])
+async def list_users(
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=200),
+    repository: Any = Depends(get_repository),
+) -> List[AdminAccountResponse]:
+    accounts = await repository.search_admin_accounts(q, limit)
+    return [AdminAccountResponse(**vars(account)) for account in accounts]
+
+
+@router.get("/payments", response_model=List[AdminPaymentResponse])
+async def list_payments(
+    limit: int = Query(default=50, ge=1, le=200),
+    repository: Any = Depends(get_repository),
+) -> List[AdminPaymentResponse]:
+    payments = await repository.list_admin_payments(limit)
+    return [
+        AdminPaymentResponse(
+            id=payment.id,
+            telegram_id=payment.telegram_id,
+            user_name=payment.user_name,
+            package_title=payment.package_title,
+            lessons=payment.lessons,
+            amount_rub=_rub(payment.amount_minor),
+            status=payment.status,
+            status_label=PAYMENT_STATUS_LABELS.get(payment.status, payment.status),
+            created_at=payment.created_at,
+        )
+        for payment in payments
+    ]
+
+
+# ---------- поддержка ----------
+
+
+@router.get("/support", response_model=List[AdminSupportTicketResponse])
+async def list_support_tickets(
+    ticket_status: str = Query(
+        default="open", alias="status", pattern="^(open|closed)$"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    repository: Any = Depends(get_repository),
+) -> List[AdminSupportTicketResponse]:
+    tickets = await repository.list_admin_support_tickets(ticket_status, limit)
+    return [AdminSupportTicketResponse(**vars(ticket)) for ticket in tickets]
+
+
+@router.get("/support/{ticket_id}", response_model=AdminSupportThreadResponse)
+async def read_support_ticket(
+    ticket_id: int = _db_id(),
+    repository: Any = Depends(get_repository),
+) -> AdminSupportThreadResponse:
+    thread = await repository.get_support_ticket_thread(ticket_id)
+    if thread is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Обращение не найдено")
+    return AdminSupportThreadResponse(
+        **SupportThreadResponse.from_thread(thread).model_dump(),
+        telegram_id=thread.telegram_id,
+        user_name=thread.user_name,
+    )
+
+
+@router.post("/support/{ticket_id}/reply", response_model=AdminSupportActionResponse)
+async def reply_support_ticket(
+    payload: AdminSupportReplyRequest,
+    ticket_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    repository: Any = Depends(get_repository),
+    bot: Any = Depends(get_bot),
+) -> AdminSupportActionResponse:
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Ответ не может быть пустым"
+        )
+    result = await deliver_support_reply(bot, repository, ticket_id, admin_id, body)
+    if result is SupportReplyStatus.NOT_FOUND:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Открытое обращение с таким номером не найдено"
+        )
+    return AdminSupportActionResponse(status=result.value)
+
+
+@router.post("/support/{ticket_id}/close", response_model=AdminSupportActionResponse)
+async def close_support_ticket(
+    ticket_id: int = _db_id(),
+    admin_id: int = Depends(require_admin_actor),
+    repository: Any = Depends(get_repository),
+    bot: Any = Depends(get_bot),
+) -> AdminSupportActionResponse:
+    if not await close_ticket_and_notify(bot, repository, ticket_id, admin_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Открытое обращение с таким номером не найдено"
+        )
+    return AdminSupportActionResponse(status="closed")
+
+
+__all__ = ["router"]

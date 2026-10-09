@@ -474,6 +474,9 @@ class WebUserRecord:
     telegram_id: Optional[int]
     display_name: str
     created_at: datetime
+    # Право администратора на сайте: users.is_admin или bot_users.is_admin
+    # привязанного Telegram (миграция 015).
+    is_admin: bool = False
 
     @classmethod
     def from_record(cls, record: Mapping[str, Any]) -> "WebUserRecord":
@@ -484,6 +487,7 @@ class WebUserRecord:
             telegram_id=record["telegram_id"],
             display_name=record["display_name"],
             created_at=record["created_at"],
+            is_admin=bool(record["is_admin"]),
         )
 
 
@@ -493,7 +497,8 @@ class WebUserRecord:
 _WEB_USER_SELECT = """
     SELECT account.id, account.email, account.password_hash, account.telegram_id,
            COALESCE(profile.user_name, account.display_name) AS display_name,
-           account.created_at
+           account.created_at,
+           account.is_admin OR COALESCE(profile.is_admin, FALSE) AS is_admin
     FROM users AS account
     LEFT JOIN bot_users AS profile ON profile.telegram_id = account.telegram_id
 """
@@ -511,9 +516,10 @@ class TelegramAlreadyLinkedError(ValueError):
 # через бота вынесены в отдельные модули только из-за размера файла. Импорт
 # стоит здесь, а не в начале: модулю нужны типы, объявленные выше.
 from .studio_postgres import PostgresStudioMixin  # noqa: E402
+from .admin_queries import InMemoryAdminMixin, PostgresAdminMixin  # noqa: E402
 
 
-class PostgresRepository(PostgresStudioMixin):
+class PostgresRepository(PostgresStudioMixin, PostgresAdminMixin):
     supports_durable_payments = True
 
     def __init__(self, pool: Any) -> None:
@@ -1486,7 +1492,7 @@ class PostgresRepository(PostgresStudioMixin):
                     INSERT INTO users (email, password_hash, display_name)
                     VALUES ($1, $2, $3)
                     RETURNING id, email, password_hash, telegram_id, display_name,
-                              created_at
+                              created_at, is_admin
                     """,
                     email,
                     password_hash,
@@ -1511,7 +1517,7 @@ class PostgresRepository(PostgresStudioMixin):
                 VALUES ($1, $2)
                 ON CONFLICT (telegram_id) DO NOTHING
                 RETURNING id, email, password_hash, telegram_id, display_name,
-                          created_at
+                          created_at, is_admin
                 """,
                 telegram_id,
                 display_name,
@@ -1520,7 +1526,7 @@ class PostgresRepository(PostgresStudioMixin):
                 record = await connection.fetchrow(
                     """
                     SELECT id, email, password_hash, telegram_id, display_name,
-                           created_at
+                           created_at, is_admin
                     FROM users WHERE telegram_id = $1
                     """,
                     telegram_id,
@@ -1621,6 +1627,55 @@ class PostgresRepository(PostgresStudioMixin):
             user_id,
             telegram_id is not None,
         )
+        return result == "UPDATE 1"
+
+    async def set_web_user_credentials(
+        self,
+        user_id: int,
+        email: str,
+        password_hash: str,
+    ) -> bool:
+        """Email и пароль для аккаунта, у которого их ещё нет (вход был только
+        через Telegram). ``False`` — аккаунта нет или email уже задан."""
+        async with self._pool.acquire() as connection:
+            try:
+                result = await connection.execute(
+                    """
+                    UPDATE users
+                    SET email = $2, password_hash = $3, updated_at = NOW()
+                    WHERE id = $1 AND email IS NULL
+                    """,
+                    user_id,
+                    email,
+                    password_hash,
+                )
+            except asyncpg.UniqueViolationError as error:
+                raise EmailAlreadyRegisteredError(
+                    "Этот email уже зарегистрирован"
+                ) from error
+        logger.info("Set web user credentials user_id=%s", user_id)
+        return result == "UPDATE 1"
+
+    async def set_web_user_password(self, user_id: int, password_hash: str) -> bool:
+        async with self._pool.acquire() as connection:
+            result = await connection.execute(
+                """
+                UPDATE users SET password_hash = $2, updated_at = NOW()
+                WHERE id = $1 AND email IS NOT NULL
+                """,
+                user_id,
+                password_hash,
+            )
+        return result == "UPDATE 1"
+
+    async def set_web_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        async with self._pool.acquire() as connection:
+            result = await connection.execute(
+                "UPDATE users SET is_admin = $2, updated_at = NOW() WHERE id = $1",
+                user_id,
+                is_admin,
+            )
+        logger.info("Set web user admin user_id=%s is_admin=%s", user_id, is_admin)
         return result == "UPDATE 1"
 
     async def close(self) -> None:
@@ -2589,7 +2644,7 @@ class _StoredBooking:
 from .studio_memory import InMemoryStudioMixin  # noqa: E402
 
 
-class InMemoryRepository(InMemoryStudioMixin):
+class InMemoryRepository(InMemoryStudioMixin, InMemoryAdminMixin):
     """Temporary repository used only when PostgreSQL is not configured."""
 
     supports_durable_payments = False
@@ -3694,10 +3749,16 @@ class InMemoryRepository(InMemoryStudioMixin):
     def _with_profile_name(
         self, user: Optional[WebUserRecord]
     ) -> Optional[WebUserRecord]:
-        """Как _WEB_USER_SELECT у PostgreSQL: имя — из профиля бота."""
+        """Как _WEB_USER_SELECT у PostgreSQL: имя — из профиля бота, право
+        администратора — с веб-аккаунта или из профиля бота."""
         if user is None or user.telegram_id not in self._profiles:
             return user
-        return replace(user, display_name=self._profiles[user.telegram_id].user_name)
+        profile = self._profiles[user.telegram_id]
+        return replace(
+            user,
+            display_name=profile.user_name,
+            is_admin=user.is_admin or profile.is_admin,
+        )
 
     async def get_web_user_by_id(self, user_id: int) -> Optional[WebUserRecord]:
         return self._with_profile_name(self._web_users.get(user_id))
@@ -3759,12 +3820,38 @@ class InMemoryRepository(InMemoryStudioMixin):
             raise TelegramAlreadyLinkedError(
                 "Этот Telegram уже привязан к другому аккаунту"
             )
-        self._web_users[user_id] = WebUserRecord(
-            id=user.id,
-            email=user.email,
-            password_hash=user.password_hash,
-            telegram_id=telegram_id,
-            display_name=user.display_name,
-            created_at=user.created_at,
+        self._web_users[user_id] = replace(user, telegram_id=telegram_id)
+        return True
+
+    async def set_web_user_credentials(
+        self,
+        user_id: int,
+        email: str,
+        password_hash: str,
+    ) -> bool:
+        user = self._web_users.get(user_id)
+        if user is None or user.email is not None:
+            return False
+        if any(
+            other.email is not None and other.email.lower() == email.lower()
+            for other in self._web_users.values()
+        ):
+            raise EmailAlreadyRegisteredError("Этот email уже зарегистрирован")
+        self._web_users[user_id] = replace(
+            user, email=email, password_hash=password_hash
         )
+        return True
+
+    async def set_web_user_password(self, user_id: int, password_hash: str) -> bool:
+        user = self._web_users.get(user_id)
+        if user is None or user.email is None:
+            return False
+        self._web_users[user_id] = replace(user, password_hash=password_hash)
+        return True
+
+    async def set_web_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        user = self._web_users.get(user_id)
+        if user is None:
+            return False
+        self._web_users[user_id] = replace(user, is_admin=is_admin)
         return True

@@ -3,7 +3,6 @@ import time
 from typing import Any
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -22,6 +21,8 @@ from ..services import (
     SupportRateLimitedError,
     SupportService,
 )
+from ..services import support as support_service
+from ..services.support import SupportReplyStatus, close_ticket_and_notify
 from .states import SupportForm
 
 
@@ -207,34 +208,19 @@ async def deliver_support_reply(
     """Сохраняет ответ администратора и отправляет его участнику.
 
     Возвращает текст результата для администратора. Общий шаг для
-    /support_reply и кнопки «Ответить» в админ-панели.
+    /support_reply и кнопки «Ответить» в админ-панели; сама логика — в
+    ``services.support`` (её же использует админка сайта).
     """
-    user_id = await repository.reply_support_ticket(ticket_id, admin_id, body)
-    if user_id is None:
+    status = await support_service.deliver_support_reply(
+        bot, repository, ticket_id, admin_id, body, reply_markup=reply_button_markup()
+    )
+    if status is SupportReplyStatus.NOT_FOUND:
         return "Открытое обращение с таким номером не найдено."
-    try:
-        await bot.send_message(
-            user_id,
-            "Ответ службы поддержки по обращению №{}:\n{}".format(ticket_id, body),
-            reply_markup=reply_button_markup(),
-        )
-    except TelegramAPIError as error:
-        logger.exception(
-            "Support reply delivery failed ticket_id=%s user_id=%s error_type=%s",
-            ticket_id,
-            user_id,
-            type(error).__name__,
-        )
+    if status is SupportReplyStatus.SAVED_NOT_DELIVERED:
         return (
             "Ответ сохранён, но Telegram не доставил его пользователю. "
             "Проверьте, что пользователь не заблокировал бота."
         )
-    logger.info(
-        "Support reply delivered ticket_id=%s admin_id=%s user_id=%s",
-        ticket_id,
-        admin_id,
-        user_id,
-    )
     return "Ответ по обращению №{} доставлен.".format(ticket_id)
 
 
@@ -256,34 +242,6 @@ async def close_support_ticket(message: Message, repository: Any) -> None:
         await message.answer("Открытое обращение с таким номером не найдено.")
         return
     await message.answer("Обращение №{} закрыто.".format(ticket_id))
-
-
-async def close_ticket_and_notify(
-    bot: Any, repository: Any, ticket_id: int, admin_id: int
-) -> bool:
-    """Закрывает обращение и сообщает участнику; ``False`` — не найдено."""
-    user_id = await repository.close_support_ticket(ticket_id, admin_id)
-    if user_id is None:
-        return False
-    try:
-        await bot.send_message(
-            user_id,
-            "Обращение №{} закрыто службой поддержки.".format(ticket_id),
-        )
-    except TelegramAPIError as error:
-        logger.warning(
-            "Support close notification failed ticket_id=%s user_id=%s error_type=%s",
-            ticket_id,
-            user_id,
-            type(error).__name__,
-        )
-    logger.info(
-        "Support ticket closed ticket_id=%s admin_id=%s user_id=%s",
-        ticket_id,
-        admin_id,
-        user_id,
-    )
-    return True
 
 
 __all__ = ["router"]

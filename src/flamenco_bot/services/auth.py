@@ -36,6 +36,8 @@ from ..database.studio_models import (
 logger = logging.getLogger("bot.services.auth")
 
 MIN_PASSWORD_LENGTH = 8
+# Верхняя граница — чтобы PBKDF2 не считал хеш от мегабайтной строки.
+MAX_PASSWORD_LENGTH = 256
 _TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60
 # PBKDF2-HMAC-SHA256: доступен в любой сборке hashlib (в отличие от scrypt,
 # который на некоторых платформах требует OpenSSL с поддержкой scrypt).
@@ -59,6 +61,10 @@ class InvalidTelegramAuthError(ValueError):
 
 class CannotUnlinkOnlyLoginMethodError(ValueError):
     """Нельзя отвязать Telegram, если это единственный способ входа в аккаунт."""
+
+
+class CredentialsAlreadySetError(ValueError):
+    """У аккаунта уже есть email и пароль."""
 
 
 # Токен в deep link: t.me/<бот>?start=c_<token>. Telegram допускает в
@@ -88,6 +94,25 @@ class TelegramConnectCompletion:
     # устарела; used — запрос уже использован; unknown — нет такого запроса.
     status: str
     user: Optional[WebUserRecord] = None
+
+
+def _normalize_email(email: str) -> str:
+    normalized = email.strip().lower()
+    local, _, domain = normalized.partition("@")
+    if not local or "." not in domain or len(normalized) > 254 or " " in normalized:
+        raise ValueError("Укажите корректный email")
+    return normalized
+
+
+def _check_password(password: str) -> None:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise WeakPasswordError(
+            "Пароль должен содержать минимум {} символов".format(MIN_PASSWORD_LENGTH)
+        )
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise WeakPasswordError(
+            "Пароль должен быть не длиннее {} символов".format(MAX_PASSWORD_LENGTH)
+        )
 
 
 def mask_email(email: Optional[str]) -> str:
@@ -191,15 +216,8 @@ class AuthService:
         password: str,
         display_name: str,
     ) -> WebUserRecord:
-        normalized_email = email.strip().lower()
-        if not normalized_email or "@" not in normalized_email:
-            raise ValueError("Укажите корректный email")
-        if len(password) < MIN_PASSWORD_LENGTH:
-            raise WeakPasswordError(
-                "Пароль должен содержать минимум {} символов".format(
-                    MIN_PASSWORD_LENGTH
-                )
-            )
+        normalized_email = _normalize_email(email)
+        _check_password(password)
         normalized_name = display_name.strip() or "Участник студии"
         # PBKDF2 (600k итераций) — сотни миллисекунд CPU: в отдельном потоке,
         # чтобы не останавливать event loop всего API.
@@ -209,6 +227,57 @@ class AuthService:
         )
         logger.info("Registered web user user_id=%s", user.id)
         return user
+
+    async def set_email_credentials(
+        self,
+        user_id: int,
+        email: str,
+        password: str,
+    ) -> WebUserRecord:
+        """Email и пароль для аккаунта, созданного входом через Telegram:
+        дальше можно входить и так, и так — это тот же аккаунт.
+
+        ``EmailAlreadyRegisteredError`` — email занят другим аккаунтом;
+        ``CredentialsAlreadySetError`` — у аккаунта уже есть email.
+        """
+        normalized_email = _normalize_email(email)
+        _check_password(password)
+        password_hash = await asyncio.to_thread(hash_password, password)
+        if not await self.repository.set_web_user_credentials(
+            user_id, normalized_email, password_hash
+        ):
+            raise CredentialsAlreadySetError("У аккаунта уже есть email и пароль")
+        logger.info("Set email credentials user_id=%s", user_id)
+        updated = await self.repository.get_web_user_by_id(user_id)
+        if updated is None:
+            raise LookupError("Аккаунт не найден")
+        return updated
+
+    async def ensure_admin_account(
+        self,
+        email: str,
+        password: str,
+        display_name: str = "Администратор",
+    ) -> WebUserRecord:
+        """Создаёт аккаунт администратора или делает администратором
+        существующий (пароль при этом заменяется). Только для серверной
+        команды ``python -m flamenco_bot.api.manage`` — не для API."""
+        normalized_email = _normalize_email(email)
+        _check_password(password)
+        password_hash = await asyncio.to_thread(hash_password, password)
+        user = await self.repository.get_web_user_by_email(normalized_email)
+        if user is None:
+            user = await self.repository.create_web_user(
+                normalized_email, password_hash, display_name.strip() or "Администратор"
+            )
+        else:
+            await self.repository.set_web_user_password(user.id, password_hash)
+        await self.repository.set_web_user_admin(user.id, True)
+        logger.info("Ensured web admin account user_id=%s", user.id)
+        updated = await self.repository.get_web_user_by_id(user.id)
+        if updated is None:
+            raise LookupError("Аккаунт не найден")
+        return updated
 
     async def authenticate_with_email(
         self,
@@ -396,9 +465,11 @@ class AuthService:
 __all__ = [
     "AuthService",
     "CannotUnlinkOnlyLoginMethodError",
+    "CredentialsAlreadySetError",
     "EmailAlreadyRegisteredError",
     "InvalidCredentialsError",
     "InvalidTelegramAuthError",
+    "MAX_PASSWORD_LENGTH",
     "MIN_PASSWORD_LENGTH",
     "TelegramAlreadyLinkedError",
     "TelegramConnectCompletion",

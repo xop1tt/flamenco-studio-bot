@@ -10,6 +10,7 @@ from ..database.repository import WebUserRecord
 from ..runtime.security import AuthRateLimiter, SupportRateLimiter
 from ..services import (
     AdminNotifier,
+    AdminService,
     AuthService,
     BookingService,
     HistoryService,
@@ -17,6 +18,7 @@ from ..services import (
     PackageService,
     PaymentService,
     ProfileService,
+    ScheduleService,
     SupportService,
 )
 from .config import WebConfig
@@ -101,6 +103,35 @@ async def require_telegram_linked_user(
     return current_user
 
 
+async def require_admin(
+    current_user: WebUserRecord = Depends(get_current_user),
+) -> WebUserRecord:
+    """Администратор сайта: ``users.is_admin`` или администратор бота с
+    привязанным Telegram. Проверка — здесь, на каждом ``/api/admin/*``;
+    скрытая ссылка во фронтенде защитой не считается."""
+    if not current_user.is_admin:
+        logger.warning("Admin access denied user_id=%s", current_user.id)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав")
+    return current_user
+
+
+async def require_admin_actor(
+    current_user: WebUserRecord = Depends(require_admin),
+) -> int:
+    """Telegram ID администратора для изменяющих действий.
+
+    Журналы расписания, поддержки и баланса в БД ведутся по Telegram ID
+    (как и в админке бота), поэтому изменять данные можно только с
+    привязанным Telegram — смотреть сводку и показатели можно и без него.
+    """
+    if current_user.telegram_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Привяжите Telegram к аккаунту, чтобы изменять данные студии",
+        )
+    return current_user.telegram_id
+
+
 def get_admin_notifier(request: Request) -> AdminNotifier:
     return AdminNotifier(get_bot(request), get_repository(request))
 
@@ -135,6 +166,14 @@ def get_history_service(request: Request) -> HistoryService:
 
 def get_notification_service(request: Request) -> NotificationService:
     return NotificationService(get_repository(request))
+
+
+def get_schedule_service(request: Request) -> ScheduleService:
+    return ScheduleService(get_repository(request))
+
+
+def get_admin_service(request: Request) -> AdminService:
+    return AdminService(get_repository(request))
 
 
 async def get_bot_username(request: Request) -> str:

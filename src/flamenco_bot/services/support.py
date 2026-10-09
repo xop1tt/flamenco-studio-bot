@@ -2,7 +2,10 @@
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
+
+from aiogram.exceptions import TelegramAPIError
 
 from ..database.repository import MAX_SUPPORT_MESSAGE_LENGTH
 from ..database.studio_models import SupportTicketThread
@@ -112,3 +115,77 @@ class SupportService:
                 admin_telegram_id,
             )
         return user_id
+
+
+class SupportReplyStatus(Enum):
+    DELIVERED = "delivered"
+    # Ответ сохранён в обращении, но Telegram не доставил его участнику
+    # (например, участник заблокировал бота).
+    SAVED_NOT_DELIVERED = "saved_not_delivered"
+    NOT_FOUND = "not_found"
+
+
+async def deliver_support_reply(
+    bot: Any,
+    repository: Any,
+    ticket_id: int,
+    admin_id: int,
+    body: str,
+    reply_markup: Any = None,
+) -> SupportReplyStatus:
+    """Сохраняет ответ администратора и отправляет его участнику в Telegram.
+
+    Общий шаг для бота (/support_reply, админ-панель) и админки сайта.
+    """
+    user_id = await repository.reply_support_ticket(ticket_id, admin_id, body)
+    if user_id is None:
+        return SupportReplyStatus.NOT_FOUND
+    try:
+        await bot.send_message(
+            user_id,
+            "Ответ службы поддержки по обращению №{}:\n{}".format(ticket_id, body),
+            reply_markup=reply_markup,
+        )
+    except TelegramAPIError as error:
+        logger.exception(
+            "Support reply delivery failed ticket_id=%s user_id=%s error_type=%s",
+            ticket_id,
+            user_id,
+            type(error).__name__,
+        )
+        return SupportReplyStatus.SAVED_NOT_DELIVERED
+    logger.info(
+        "Support reply delivered ticket_id=%s admin_id=%s user_id=%s",
+        ticket_id,
+        admin_id,
+        user_id,
+    )
+    return SupportReplyStatus.DELIVERED
+
+
+async def close_ticket_and_notify(
+    bot: Any, repository: Any, ticket_id: int, admin_id: int
+) -> bool:
+    """Закрывает обращение и сообщает участнику; ``False`` — не найдено."""
+    user_id = await repository.close_support_ticket(ticket_id, admin_id)
+    if user_id is None:
+        return False
+    try:
+        await bot.send_message(
+            user_id,
+            "Обращение №{} закрыто службой поддержки.".format(ticket_id),
+        )
+    except TelegramAPIError as error:
+        logger.warning(
+            "Support close notification failed ticket_id=%s user_id=%s error_type=%s",
+            ticket_id,
+            user_id,
+            type(error).__name__,
+        )
+    logger.info(
+        "Support ticket closed ticket_id=%s admin_id=%s user_id=%s",
+        ticket_id,
+        admin_id,
+        user_id,
+    )
+    return True
