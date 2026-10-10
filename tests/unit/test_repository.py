@@ -3,6 +3,7 @@ import socket
 import ssl
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from flamenco_bot.database.repository import (
@@ -13,6 +14,11 @@ from flamenco_bot.database.repository import (
     is_database_configured,
 )
 from tests.support import FakePool
+
+# Публичный корневой сертификат Supabase (не секрет).
+SUPABASE_CA = (
+    Path(__file__).resolve().parent.parent / "fixtures" / ("supabase-root-2021-ca.crt")
+)
 
 
 class RepositoryTests(unittest.IsolatedAsyncioTestCase):
@@ -140,6 +146,27 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(ssl_context, ssl.SSLContext)
         self.assertEqual(ssl_context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(ssl_context.check_hostname)
+
+    async def test_private_ca_keeps_verification_without_strict_x509(self):
+        # Промежуточный CA пулера Supabase без keyUsage: Python 3.13 в строгом
+        # режиме X.509 отклоняет цепочку, хотя libpq verify-full её принимает.
+        pool = FakePool()
+        with patch(
+            "flamenco_bot.database.repository.asyncpg.create_pool",
+            new=AsyncMock(return_value=pool),
+        ) as create_pool:
+            await PostgresRepository.connect(
+                "postgresql://bot@db.test.internal/bot", ssl_ca_path=str(SUPABASE_CA)
+            )
+
+        pool_call = create_pool.await_args
+        if pool_call is None:
+            self.fail("PostgreSQL pool was not constructed")
+        ssl_context = pool_call.kwargs["ssl"]
+        self.assertEqual(ssl_context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(ssl_context.check_hostname)
+        strict = getattr(ssl, "VERIFY_X509_STRICT", 0)
+        self.assertFalse(ssl_context.verify_flags & strict)
 
     async def test_development_can_disable_tls_for_loopback_database_only(self):
         pool = FakePool()

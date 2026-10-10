@@ -578,6 +578,13 @@ class PostgresRepository(PostgresStudioMixin, PostgresAdminMixin):
             ssl_setting = ssl.create_default_context(
                 cafile=str(Path(ssl_ca_path).expanduser()) if ssl_ca_path else None
             )
+            if ssl_ca_path:
+                # Python 3.13 включает VERIFY_X509_STRICT, а в частных
+                # цепочках провайдеров БД бывают CA без расширения keyUsage
+                # (промежуточный CA пулера Supabase) — такие отклоняются.
+                # Цепочка до заданного CA и hostname по-прежнему проверяются,
+                # как в libpq verify-full.
+                ssl_setting.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
         try:
             pool = await asyncpg.create_pool(
                 dsn=database_url,
