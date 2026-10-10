@@ -18,6 +18,7 @@ import uvicorn
 
 from flamenco_bot.api import __main__ as api_main
 from flamenco_bot.api.app import create_app
+from flamenco_bot.api.config import WebConfig, parse_frontend_proxy_secret
 from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.runtime.security import AuthRateLimiter, SupportRateLimiter
 from flamenco_bot.services import AuthService
@@ -112,6 +113,74 @@ class ClientIpBehindProxyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await local.get("/api/bookings/rules")).status_code, 200)
             codes = [await self._login(local) for _ in range(LIMIT + 1)]
         self.assertEqual(codes, [401] * LIMIT + [429])
+
+
+class FrontendSecretClientIpTests(ClientIpBehindProxyTests):
+    """Netlify → Render: адрес прокси сайта неизвестен, IP посетителя сервер
+    сайта передаёт в X-Flamenco-Client-IP вместе с общим секретом."""
+
+    SECRET = "s" * 40
+    RENDER_PROXY = "10.20.30.40"
+
+    def setUp(self):
+        patcher = patch.object(WebConfig, "FRONTEND_PROXY_SECRET", self.SECRET)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def _site_login(self, client, visitor_ip, secret=SECRET):
+        response = await client.post(
+            "/api/auth/login",
+            json={"email": "nobody@example.com", "password": "wrong-password"},
+            headers={
+                "X-Flamenco-Frontend-Secret": secret,
+                "X-Flamenco-Client-IP": visitor_ip,
+            },
+        )
+        return response.status_code
+
+    async def test_visitors_with_secret_have_separate_limits(self):
+        app = self._app("127.0.0.1")
+        async with self._client(app, self.RENDER_PROXY) as site:
+            codes = [await self._site_login(site, "203.0.113.1") for _ in range(LIMIT)]
+            self.assertEqual(codes, [401] * LIMIT)
+            self.assertEqual(await self._site_login(site, "203.0.113.1"), 429)
+            self.assertEqual(await self._site_login(site, "203.0.113.2"), 401)
+
+    async def test_wrong_secret_does_not_change_client_ip(self):
+        app = self._app("127.0.0.1")
+        async with self._client(app, self.RENDER_PROXY) as attacker:
+            codes = [
+                await self._site_login(attacker, "192.0.2.{}".format(n), "x" * 40)
+                for n in range(LIMIT + 1)
+            ]
+        self.assertEqual(codes, [401] * LIMIT + [429])
+
+    async def test_invalid_client_ip_falls_back_to_connection(self):
+        app = self._app("127.0.0.1")
+        async with self._client(app, self.RENDER_PROXY) as site:
+            codes = [
+                await self._site_login(site, "not-an-ip-{}".format(n))
+                for n in range(LIMIT + 1)
+            ]
+        self.assertEqual(codes[-1], 429)
+
+    async def test_header_is_ignored_when_secret_is_not_configured(self):
+        app = self._app("127.0.0.1")
+        with patch.object(WebConfig, "FRONTEND_PROXY_SECRET", ""):
+            async with self._client(app, self.RENDER_PROXY) as client:
+                codes = [
+                    await self._site_login(client, "192.0.2.{}".format(n), "")
+                    for n in range(LIMIT + 1)
+                ]
+        self.assertEqual(codes[-1], 429)
+
+
+class FrontendSecretConfigTests(unittest.TestCase):
+    def test_short_secret_is_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_frontend_proxy_secret("short")
+        self.assertEqual(parse_frontend_proxy_secret(""), "")
+        self.assertEqual(parse_frontend_proxy_secret(" " + "a" * 32), "a" * 32)
 
 
 class ForwardedAllowIpsConfigTests(unittest.TestCase):

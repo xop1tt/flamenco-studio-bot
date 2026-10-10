@@ -14,6 +14,13 @@ import os
 from ..config import Config as BotConfig
 
 
+def parse_frontend_proxy_secret(value: str) -> str:
+    secret = value.strip()
+    if secret and len(secret) < 32:
+        raise ValueError("FRONTEND_PROXY_SECRET должен быть не короче 32 символов")
+    return secret
+
+
 class WebConfig(BotConfig):
     """Конфигурация FastAPI-приложения сайта."""
 
@@ -25,3 +32,12 @@ class WebConfig(BotConfig):
     # checkout на сайте остаётся недоступен (YooKassaClient.is_configured
     # == False), пока не укажете реальный адрес сайта здесь.
     WEB_YOOKASSA_RETURN_URL: str = os.getenv("WEB_YOOKASSA_RETURN_URL", "").strip()
+
+    # Общий секрет сайта и API для хостингов, где адрес прокси сайта заранее
+    # неизвестен (Netlify → Render): сервер сайта передаёт IP посетителя в
+    # X-Flamenco-Client-IP вместе с этим секретом, и rate limit входа
+    # считает попытки по посетителю. Пусто — заголовок игнорируется, IP
+    # берётся из соединения (FORWARDED_ALLOW_IPS, см. __main__.py).
+    FRONTEND_PROXY_SECRET: str = parse_frontend_proxy_secret(
+        os.getenv("FRONTEND_PROXY_SECRET", "")
+    )

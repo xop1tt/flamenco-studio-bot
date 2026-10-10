@@ -1,5 +1,7 @@
 """FastAPI-зависимости: репозиторий, сервисы, текущий пользователь."""
 
+import hmac
+import ipaddress
 import logging
 from typing import Any, Optional
 
@@ -48,7 +50,25 @@ def get_auth_limiter(request: Request) -> AuthRateLimiter:
     return request.app.state.auth_limiter
 
 
+FRONTEND_SECRET_HEADER = "x-flamenco-frontend-secret"
+FRONTEND_CLIENT_IP_HEADER = "x-flamenco-client-ip"
+
+
 def client_ip(request: Request) -> str:
+    # IP посетителя от сервера сайта принимается только с верным общим
+    # секретом (WebConfig.FRONTEND_PROXY_SECRET): без него клиент подставил
+    # бы любой адрес и обошёл rate limit входа.
+    secret = WebConfig.FRONTEND_PROXY_SECRET
+    provided = request.headers.get(FRONTEND_SECRET_HEADER, "")
+    if secret and provided and hmac.compare_digest(provided.encode(), secret.encode()):
+        try:
+            return str(
+                ipaddress.ip_address(
+                    request.headers.get(FRONTEND_CLIENT_IP_HEADER, "").strip()
+                )
+            )
+        except ValueError:
+            pass
     return request.client.host if request.client else "unknown"
 
 
