@@ -231,7 +231,8 @@ Telegram ◄── polling ──┐
 
    Порт **5432** (session mode): бот и API используют сессионные advisory-
    блокировки и подготовленные запросы asyncpg, transaction mode (6543) им
-   не подходит. Хост копируйте из панели — у проекта он может отличаться.
+   не подходит. Хост копируйте из панели — у проекта он может отличаться
+   (например, `aws-1-eu-central-1.pooler.supabase.com`).
 4. **Database Settings → SSL Configuration → Download certificate** — CA
    Supabase (`prod-ca-2021.crt`); он нужен для `verify-full`. Это публичный
    сертификат, не секрет.
@@ -248,6 +249,10 @@ Telegram ◄── polling ──┐
 4. Сервис → **Environment → Secret Files**: файл `supabase-ca.crt` с
    содержимым сертификата из шага 1 (путь `/etc/secrets/supabase-ca.crt`
    уже задан в `DATABASE_SSL_CA`).
+   Автодеплой работает, только если репозиторий подключён через GitHub-
+   приложение Render (Settings → Build & Deploy → Repository). Сервис,
+   созданный по публичной ссылке на репозиторий, о новых коммитах не узнаёт —
+   деплой тогда запускается вручную (Manual Deploy).
 5. Остановите локальный бот с тем же `BOT_TOKEN`: два polling-процесса с одним
    токеном мешают друг другу.
 6. Дождитесь деплоя и проверьте (адрес — в шапке сервиса):
