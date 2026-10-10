@@ -35,7 +35,7 @@ async def _connect():
         ssl_mode=WebConfig.DATABASE_SSL_MODE,
         allow_insecure_local=WebConfig.ENV == "development",
     )
-    # Схема должна быть не старее нужной коду (миграции — в flamenco-db).
+    # Схема должна быть не старее нужной коду (миграции — в DATABASE).
     await repository.initialize()
     return repository
 

@@ -6,7 +6,7 @@
 и compose-файлами:
 
 - **этот репозиторий** (backend) — `compose.yaml` с сервисами `bot` и `api`;
-- **сайт** (Next.js, локально — папка `FLAMENCO WEBSITE`) — свой
+- **сайт** (Next.js, локально — папка `WEBSITE`) — свой
   `compose.yaml` с сервисом `frontend`.
 
 Всего три контейнера; с PostgreSQL работают только `bot` и `api`. Сайт
@@ -220,8 +220,8 @@ Telegram ◄── polling ──┐
    ALTER ROLE flamenco_app SET search_path = flamenco;
    ```
 
-   Таблицы создают миграции репозитория `flamenco-db`: workflow «Migrations»
-   после настройки секрета `DATABASE_URL` (README `flamenco-db`, «Supabase»).
+   Таблицы создают миграции репозитория `DATABASE`: workflow «Migrations»
+   после настройки секрета `DATABASE_URL` (README `DATABASE`, «Supabase»).
 3. **Connect → Session pooler** (IPv4; прямое подключение у Supabase только
    IPv6, а Render его не поддерживает). Возьмите host и project ref и
    соберите `DATABASE_URL`:
@@ -242,7 +242,7 @@ Telegram ◄── polling ──┐
 
 1. Зарегистрируйтесь на render.com через GitHub. Карту не вводите. Если Render
    попросит верификацию картой — остановитесь: это уже не «без карты».
-2. **New → Blueprint**, репозиторий `flamenco-studio-bot`, файл
+2. **New → Blueprint**, репозиторий `TELEGRAM-BOT`, файл
    [`render.yaml`](../render.yaml). На экране подтверждения должен быть один
    сервис `flamenco-backend` с планом **Free** и **$0/month**.
 3. Render спросит секреты: `BOT_TOKEN`, `ADMINS`, `DATABASE_URL` (из шага 1),
@@ -283,7 +283,7 @@ email, если backend недоступен.
 
 `git push` в `main` → CI (`.github/workflows/ci.yml`) → после зелёных
 проверок Render сам собирает и выкатывает образ (`autoDeployTrigger:
-checksPass`). Изменения схемы выкладываются раньше — push в `flamenco-db`;
+checksPass`). Изменения схемы выкладываются раньше — push в `DATABASE`;
 на старой схеме новый образ не стартует, и Render оставит прежний. Ручной деплой: **Manual
 Deploy** в панели сервиса. Откат: **Rollback** на предыдущий деплой —
 схема БД при этом не откатывается.
@@ -291,13 +291,13 @@ Deploy** в панели сервиса. Откат: **Rollback** на пред�
 ### Резервные копии
 
 У бесплатного Supabase нет автоматических резервных копий. Команда выгрузки
-схемы `flamenco` и проверка восстановления — в README `flamenco-db`, раздел
+схемы `flamenco` и проверка восстановления — в README `DATABASE`, раздел
 «Резервные копии»; выполняйте её раз в неделю и перед рискованными
 миграциями.
 
 ### Подключение сайта
 
-Сайт (отдельный репозиторий FLAMENCO WEBSITE) обращается к API только со
+Сайт (отдельный репозиторий WEBSITE) обращается к API только со
 своего сервера: страницы и server actions вызывают `API_BASE_URL`, а
 браузерные `/api/*` проксирует rewrite Next.js. Браузер не делает запросов к
 `onrender.com`, поэтому **CORS в API не нужен и не включается**, а cookie
@@ -346,7 +346,7 @@ Deploy** в панели сервиса. Откат: **Rollback** на пред�
    Dockerfile, git, логи или обращения в поддержку.
 5. Создайте отдельную production-базу PostgreSQL. Выдайте пользователю бота
    только необходимые права на выделенную схему и примените миграции
-   `flamenco-db` (`python migrate.py`) — backend их не применяет.
+   `DATABASE` (`python migrate.py`) — backend их не применяет.
 6. Запускайте `docker compose up -d --build`; после этого проверьте
    `docker compose ps` и `docker compose logs --tail=100 bot api`.
    Убедитесь, что видно успешное TLS-подключение к PostgreSQL, начало polling

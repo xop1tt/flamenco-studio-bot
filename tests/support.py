@@ -350,11 +350,11 @@ class FakeDispatcher:
         setattr(self, key, value)
 
 
-# Миграции живут в репозитории базы данных (flamenco-db): локально — соседняя
-# папка «FLAMENCO DB», в CI — путь из FLAMENCO_DB_DIR. Интеграционные тесты
+# Миграции живут в репозитории базы данных (DATABASE): локально — соседняя
+# папка «DATABASE», в CI — путь из DATABASE_DIR. Интеграционные тесты
 # создают схему той же функцией migrate.apply_migrations, что и production.
 DB_REPOSITORY = Path(
-    os.getenv("FLAMENCO_DB_DIR") or Path(__file__).resolve().parents[2] / "FLAMENCO DB"
+    os.getenv("DATABASE_DIR") or Path(__file__).resolve().parents[2] / "DATABASE"
 )
 _db_migrate = None
 
@@ -366,8 +366,8 @@ def db_migrate():
         path = DB_REPOSITORY / "migrate.py"
         if not path.is_file():
             raise RuntimeError(
-                "Не найден {} — склонируйте flamenco-db рядом с проектом или "
-                "задайте FLAMENCO_DB_DIR".format(path)
+                "Не найден {} — склонируйте DATABASE рядом с проектом или "
+                "задайте DATABASE_DIR".format(path)
             )
         spec = importlib.util.spec_from_file_location("flamenco_db_migrate", path)
         module = importlib.util.module_from_spec(spec)
@@ -377,7 +377,7 @@ def db_migrate():
 
 
 async def apply_migrations(pool: Any, directory: Optional[Path] = None) -> list:
-    """Применяет миграции flamenco-db в схему из search_path пула."""
+    """Применяет миграции DATABASE в схему из search_path пула."""
     migrate = db_migrate()
     async with pool.acquire() as connection:
         return await migrate.apply_migrations(

@@ -34,13 +34,13 @@ jobs:
       TEST_DATABASE_URL: postgresql://bot:bot@localhost:5432/bot
       # Миграции — в репозитории базы данных; интеграционные тесты создают
       # схему его migrate.py (tests/support.py).
-      FLAMENCO_DB_DIR: ${{ github.workspace }}/flamenco-db
+      DATABASE_DIR: ${{ github.workspace }}/database
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
-          repository: xop1tt/flamenco-db
-          path: flamenco-db
+          repository: xop1tt/DATABASE
+          path: database
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}

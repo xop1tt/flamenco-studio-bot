@@ -223,7 +223,7 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
                 self.pool.connection.applied_migrations = versions
                 self.pool.connection.calls.clear()
                 await self.repository.initialize()
-                # Только чтение: схему меняет flamenco-db (migrate.py).
+                # Только чтение: схему меняет DATABASE (migrate.py).
                 self.assertFalse(
                     [
                         q

@@ -19,7 +19,7 @@ from .studio_models import CreditSource
 
 
 logger = logging.getLogger("bot.database")
-# Схему создают и меняют миграции репозитория базы данных (flamenco-db,
+# Схему создают и меняют миграции репозитория базы данных (DATABASE,
 # migrate.py); бот и API только проверяют при старте, что она не старее
 # нужной этому коду. Повышайте вместе с кодом, которому нужна новая миграция.
 REQUIRED_SCHEMA_VERSION = "015"
@@ -99,7 +99,7 @@ class DatabaseUnavailableError(ConnectionError):
 
 
 class SchemaVersionError(RuntimeError):
-    """Схема БД старее, чем нужно коду: не применены миграции flamenco-db."""
+    """Схема БД старее, чем нужно коду: не применены миграции DATABASE."""
 
 
 @dataclass(frozen=True)
@@ -622,7 +622,7 @@ class PostgresRepository(PostgresStudioMixin, PostgresAdminMixin):
     async def initialize(self) -> None:
         """Проверяет, что схема не старее REQUIRED_SCHEMA_VERSION.
 
-        Схему не меняет: миграции применяет репозиторий flamenco-db. На старой
+        Схему не меняет: миграции применяет репозиторий DATABASE. На старой
         схеме процесс не стартует (на Render продолжит работать прежняя
         версия), вместо того чтобы падать на первом запросе к новому столбцу.
         """
@@ -640,7 +640,7 @@ class PostgresRepository(PostgresStudioMixin, PostgresAdminMixin):
         if current is None or int(current) < int(REQUIRED_SCHEMA_VERSION):
             raise SchemaVersionError(
                 "Схема БД версии {} старее нужной {}: примените миграции "
-                "flamenco-db (python migrate.py)".format(
+                "DATABASE (python migrate.py)".format(
                     current or "—", REQUIRED_SCHEMA_VERSION
                 )
             )

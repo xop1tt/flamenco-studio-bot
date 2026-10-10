@@ -164,8 +164,8 @@ Examples of things that should normally have one source of truth:
 
 All schema changes must use the project's migration system.
 
-Migrations live in the separate database repository `flamenco-db` (local folder
-`FLAMENCO DB` next to this one, `migrate.py`). This repository does not apply
+Migrations live in the separate database repository `DATABASE` (a
+sibling folder of the same name, `migrate.py`). This repository does not apply
 them: on startup the bot and API only check `REQUIRED_SCHEMA_VERSION` in
 `src/flamenco_bot/database/repository.py`. A change that needs a new migration
 spans both repositories: add the migration there, raise the required version

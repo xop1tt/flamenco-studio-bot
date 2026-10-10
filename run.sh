@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Локальный запуск backend Flamenco Studio одной командой: Telegram-бот +
 # веб-API (FastAPI). Для разработки, не для продакшена — там compose.yaml
-# (см. docs/deployment.md). Сайт — отдельный проект (FLAMENCO WEBSITE),
+# (см. docs/deployment.md). Сайт — отдельный проект (WEBSITE),
 # запускается там через `npm run dev` и обращается к этому API по HTTP.
 #
 #   ./run.sh          бот + API
@@ -123,7 +123,7 @@ if [ "$RUN_BOT" = 1 ]; then
 fi
 
 if [ "$RUN_API" = 1 ]; then
-    echo "[run] API: http://127.0.0.1:$API_PORT (сайт: cd \"../FLAMENCO WEBSITE\" && npm run dev)"
+    echo "[run] API: http://127.0.0.1:$API_PORT (сайт: cd \"../WEBSITE\" && npm run dev)"
 fi
 echo "[run] Ctrl+C — остановить всё"
 

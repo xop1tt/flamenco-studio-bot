@@ -1,6 +1,6 @@
 # 💃 Flamenco Studio Bot
 
-[![Tests](https://github.com/xop1tt/flamenco-studio-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/xop1tt/flamenco-studio-bot/actions/workflows/ci.yml)
+[![Tests](https://github.com/xop1tt/TELEGRAM-BOT/actions/workflows/ci.yml/badge.svg)](https://github.com/xop1tt/TELEGRAM-BOT/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![aiogram](https://img.shields.io/badge/aiogram-3.31-149ECA)](https://docs.aiogram.dev/)
 
@@ -129,8 +129,8 @@ Python (`pyproject.toml`, requirements-файлы, README и `.gitignore`). Ло
 ### 1. Получите исходный код
 
 ```bash
-git clone https://github.com/xop1tt/flamenco-studio-bot.git
-cd flamenco-studio-bot
+git clone https://github.com/xop1tt/TELEGRAM-BOT.git
+cd TELEGRAM-BOT
 ```
 
 ### 2. Подготовьте виртуальное окружение
@@ -194,7 +194,7 @@ API — `503 {"detail": "Database temporarily unavailable"}`; подробнос
 ошибки пишутся только в серверные логи.
 
 Сайт (Next.js) — отдельный проект со своим git-репозиторием (локально —
-папка `FLAMENCO WEBSITE` рядом с этой). Он запускается там же
+папка `WEBSITE` рядом с этой). Он запускается там же
 (`npm run dev`, http://localhost:3000) и обращается к этому API только по
 HTTP (`API_BASE_URL`, по умолчанию `http://127.0.0.1:8000`); бизнес-логики
 и доступа к БД у сайта нет.
@@ -244,8 +244,8 @@ backend'а. Все контейнеры запускаются не от root, �
 3. Клонируйте репозиторий на сервер и создайте приватный `.env`:
 
    ```bash
-   git clone https://github.com/xop1tt/flamenco-studio-bot.git
-   cd flamenco-studio-bot
+   git clone https://github.com/xop1tt/TELEGRAM-BOT.git
+   cd TELEGRAM-BOT
    cp env.example .env
    chmod 600 .env
    ```
@@ -260,7 +260,7 @@ backend'а. Все контейнеры запускаются не от root, �
 5. Убедитесь, что указана отдельная production-база, пользователь приложения
    имеет права на таблицы схемы, а лимит соединений учитывает размер
    пула и оба контейнера с БД (`bot` и `api`). Миграции примените заранее из
-   репозитория `flamenco-db` (`python migrate.py`): на старой схеме `bot` и
+   репозитория `DATABASE` (`python migrate.py`): на старой схеме `bot` и
    `api` не запускаются.
 6. Соберите образы и запустите:
 
@@ -292,7 +292,7 @@ backend'а. Все контейнеры запускаются не от root, �
 `compose.yaml` ожидает файл `.env` рядом с собой и сохраняет файлы `bot` в
 named volume `bot_logs`; стандартный Docker log driver также ограничивает
 объём stdout/stderr у обоих сервисов. Резервные копии PostgreSQL
-настраиваются в репозитории `flamenco-db` и не заменяют проверенный внешний
+настраиваются в репозитории `DATABASE` и не заменяют проверенный внешний
 backup/restore-план. Для частного CA PostgreSQL примонтируйте
 сертификат внутрь контейнера read-only и задайте `DATABASE_SSL_CA` его
 контейнерным путём.
@@ -325,7 +325,7 @@ backup/restore-план. Для частного CA PostgreSQL примонти�
 | `WEB_YOOKASSA_RETURN_URL` | Для платежей на сайте | Отдельный URL возврата для checkout, начатого на сайте (`/api/payments`); пока пуст — оплата на сайте отвечает 503 |
 | `FRONTEND_PROXY_SECRET` | Сайт на другом хостинге | Общий секрет сайта и API (≥ 32 символов): сайт передаёт IP посетителя для rate limit входа |
 
-Полный шаблон находится в [`env.example`](https://github.com/xop1tt/flamenco-studio-bot/blob/main/env.example).
+Полный шаблон находится в [`env.example`](https://github.com/xop1tt/TELEGRAM-BOT/blob/main/env.example).
 
 > [!WARNING]
 > Настройки production требуют `DATABASE_URL` и `DATABASE_SSL_MODE=verify-full`.
@@ -344,12 +344,12 @@ backup/restore-план. Для частного CA PostgreSQL примонти�
 ## 🗄️ PostgreSQL и миграции
 
 Создайте отдельную базу и пользователя приложения с минимально необходимыми
-правами. Миграциям (`flamenco-db`) нужен `CREATE` в выделенной схеме. Не выдавайте сервисному пользователю `SUPERUSER` или права управления
+правами. Миграциям (`DATABASE`) нужен `CREATE` в выделенной схеме. Не выдавайте сервисному пользователю `SUPERUSER` или права управления
 ролями. Ограничьте доступ к базе, резервным копиям и сетевому порту PostgreSQL.
 
 Схему создают и меняют миграции отдельного репозитория базы данных
-[`flamenco-db`](https://github.com/xop1tt/flamenco-db) (локально — папка
-`FLAMENCO DB` рядом с этим проектом): там же список миграций, их проверка в CI и
+[`DATABASE`](https://github.com/xop1tt/DATABASE) (локально — соседняя
+папка с тем же именем): там же список миграций, их проверка в CI и
 применение к Supabase. Бот и API схему не меняют: при старте они проверяют, что
 версия схемы не ниже `REQUIRED_SCHEMA_VERSION`
 (`src/flamenco_bot/database/repository.py`), и иначе не запускаются. Порядок
@@ -544,7 +544,7 @@ checkout и кнопку ручной проверки статуса. Публ�
 
 Настройте в `.env` `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` и
 `YOOKASSA_RETURN_URL`. В каталоге
-[`payments/catalog.py`](https://github.com/xop1tt/flamenco-studio-bot/blob/main/src/flamenco_bot/payments/catalog.py)
+[`payments/catalog.py`](https://github.com/xop1tt/TELEGRAM-BOT/blob/main/src/flamenco_bot/payments/catalog.py)
 сейчас заданы демонстрационные пакеты и цены. Проверьте их и замените перед
 подключением live-реквизитов.
 
@@ -564,10 +564,10 @@ checkout и кнопку ручной проверки статуса. Публ�
 
 ## 🗃️ Резервные копии
 
-Резервное копирование — часть репозитория базы данных `flamenco-db`: ручная
+Резервное копирование — часть репозитория базы данных `DATABASE`: ручная
 выгрузка Supabase (`pg_dump` схемы `flamenco`) и зашифрованные ежедневные архивы
 `docker-compose.backup.yml` для своего сервера, а также проверка восстановления.
-См. README `flamenco-db`, раздел «Резервные копии».
+См. README `DATABASE`, раздел «Резервные копии».
 
 ## 🧹 Хранение и удаление данных
 
@@ -636,8 +636,8 @@ python -m unittest discover -s tests/unit -v
 рабочую БД. Тест создаёт временную схему и удаляет её после выполнения; указанная
 база должна быть выделенной тестовой, а пользователь — иметь право создавать и
 удалять схемы. Схему во временной схеме создаёт `migrate.py` репозитория
-`flamenco-db`: по умолчанию он берётся из соседней папки `FLAMENCO DB`, иначе
-укажите путь в `FLAMENCO_DB_DIR`.
+`DATABASE`: по умолчанию он берётся из соседней папки `DATABASE`, иначе
+укажите путь в `DATABASE_DIR`.
 
 ```bash
 TEST_DATABASE_URL='postgresql://bot_test:change-me@localhost:5432/flamenco_test' \
@@ -665,8 +665,8 @@ ruff format --check src tests
 GitHub Actions запускает unit- и PostgreSQL-интеграционные тесты на Python 3.10,
 3.11 и 3.13, используя отдельный временный PostgreSQL-сервис.
 
-- [Workflow: Tests](https://github.com/xop1tt/flamenco-studio-bot/actions/workflows/ci.yml)
-- [Список запусков CI](https://github.com/xop1tt/flamenco-studio-bot/actions)
+- [Workflow: Tests](https://github.com/xop1tt/TELEGRAM-BOT/actions/workflows/ci.yml)
+- [Список запусков CI](https://github.com/xop1tt/TELEGRAM-BOT/actions)
 
 ## 🧯 Диагностика
 
@@ -682,8 +682,8 @@ GitHub Actions запускает unit- и PostgreSQL-интеграционны
 
 ## 🔗 Документация и внешние ресурсы
 
-- [Репозиторий на GitHub](https://github.com/xop1tt/flamenco-studio-bot)
-- [Исходный код бота](https://github.com/xop1tt/flamenco-studio-bot/tree/main/src/flamenco_bot)
+- [Репозиторий на GitHub](https://github.com/xop1tt/TELEGRAM-BOT)
+- [Исходный код бота](https://github.com/xop1tt/TELEGRAM-BOT/tree/main/src/flamenco_bot)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Создание бота через BotFather](https://core.telegram.org/bots/features#botfather)
 - [Документация aiogram 3](https://docs.aiogram.dev/en/latest/)
@@ -693,7 +693,7 @@ GitHub Actions запускает unit- и PostgreSQL-интеграционны
 - [PostgreSQL: TLS и SSL](https://www.postgresql.org/docs/current/libpq-ssl.html)
 - [ЮKassa: документация API](https://yookassa.ru/developers/)
 - [ЮKassa: тестовый магазин](https://yookassa.ru/developers/using-api/testing)
-- [Отчёты GitHub Actions](https://github.com/xop1tt/flamenco-studio-bot/actions)
+- [Отчёты GitHub Actions](https://github.com/xop1tt/TELEGRAM-BOT/actions)
 
 ## 📄 Лицензия
 
