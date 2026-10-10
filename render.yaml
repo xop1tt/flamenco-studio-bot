@@ -1,0 +1,49 @@
+# Render Blueprint: Telegram-бот и веб-API одним бесплатным веб-сервисом.
+# Как применить и что заполнить — docs/deployment.md, «Бесплатное
+# размещение: Render + Supabase». PostgreSQL здесь не создаётся: база — в
+# Supabase (у бесплатной базы Render срок жизни 30 дней).
+#
+# plan: free обязателен — без него Render создаёт платный сервис. Перед
+# подтверждением Blueprint убедитесь, что Render показывает $0/month.
+services:
+  - type: web
+    name: flamenco-backend
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Бот и API в одном контейнере: src/flamenco_bot/supervisor.py.
+    dockerCommand: python -m flamenco_bot.supervisor
+    healthCheckPath: /api/health
+    # Деплой только после зелёного CI (.github/workflows/ci.yml).
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ENV
+        value: production
+      - key: STUDIO_TIMEZONE
+        value: Europe/Moscow
+      - key: DATABASE_SSL_MODE
+        value: verify-full
+      # CA-сертификат Supabase загружается в Render как Secret File с этим
+      # именем (Environment → Secret Files).
+      - key: DATABASE_SSL_CA
+        value: /etc/secrets/supabase-ca.crt
+      # Пулы бота и API вместе (2 × 5) укладываются в пул сессий
+      # бесплатного Supabase (15 соединений).
+      - key: DATABASE_POOL_MIN_SIZE
+        value: "1"
+      - key: DATABASE_POOL_MAX_SIZE
+        value: "5"
+      - key: LESSON_REMINDER_HOURS
+        value: "3"
+      # Секреты — Render спросит их при создании, в git их нет.
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: BOT_USERNAME
+        sync: false

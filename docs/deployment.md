@@ -134,6 +134,207 @@ Linux VPS + Docker Compose + управляемый PostgreSQL с TLS**. Она 
 системного администрирования, выбирайте managed PostgreSQL и PaaS, проверив
 поддержку постоянного процесса long polling.
 
+## Бесплатное размещение: Render + Supabase
+
+Схема с бюджетом 0 ₽ и без банковской карты: backend — один бесплатный веб-сервис
+[Render](https://render.com/docs/free), PostgreSQL — бесплатный проект
+[Supabase](https://supabase.com/pricing), сайт — отдельно (README сайта).
+Условия бесплатных тарифов проверены в октябре 2026 года — перед подключением
+сверьте их с официальными страницами.
+
+```text
+Telegram ◄── polling ──┐
+                       │      Render Free (frankfurt), один контейнер
+                       ├── python -m flamenco_bot.supervisor
+                       │      ├─ бот  (python -m flamenco_bot)
+сайт / iOS ── HTTPS ──►│      └─ API  (python -m flamenco_bot.api, порт $PORT)
+                       │
+                       └── TLS verify-full ──► Supabase Free (Frankfurt),
+                                              session pooler, схема flamenco
+```
+
+Почему так:
+
+- У Render бесплатен только веб-сервис (background worker — платный), и на
+  workspace даётся 750 бесплатных часов в месяц — ровно на **один** сервис
+  24/7. Поэтому бот и API работают в одном контейнере
+  ([`supervisor.py`](../src/flamenco_bot/supervisor.py)). Второй бесплатный
+  сервис в том же workspace исчерпает часы, и Render остановит **все**
+  бесплатные сервисы до конца месяца — сайт размещайте не на Render.
+- Бесплатный сервис Render засыпает после 15 минут без входящих HTTP-запросов,
+  а вместе с ним остановился бы и polling бота. `supervisor` раз в 10 минут
+  запрашивает свой публичный `/api/health` (`RENDER_EXTERNAL_URL`, его задаёт
+  Render), и сервис не засыпает. Внешний монитор (UptimeRobot, cron-job.org)
+  желателен как второй источник запросов и для уведомлений о простое.
+- Бесплатная база Render удаляется через 30 дней, поэтому PostgreSQL — в
+  Supabase: бесплатно бессрочно, 500 MB. Проект ставится на паузу после недели
+  без активности — бот обращается к БД каждую минуту, так что этого не
+  происходит, пока работает backend. На паузе данные сохраняются, проект
+  включается кнопкой в панели.
+- Без привязанной карты превышение лимитов не списывает деньги, а
+  приостанавливает сервис: Render — до конца месяца, Supabase ограничивает
+  проект. **Не добавляйте платёжные данные ни в Render, ни в Supabase.**
+
+Ограничения:
+
+| Параметр | Render Free | Supabase Free |
+|---|---|---|
+| Ресурсы | 0.1 CPU, 512 MB RAM, 1 экземпляр | общий CPU, 500 MB RAM, БД 500 MB |
+| Лимиты | 750 ч/мес на workspace, 5 GB исходящего трафика/мес, минуты сборки | 5 GB egress, 2 активных проекта, пул сессий ~15 соединений |
+| Сон и перезапуски | сон после 15 мин без запросов (не даёт keep-alive); Render вправе перезапустить сервис в любой момент | пауза после 7 дней без активности |
+| Диск | эфемерный: файлы логов в контейнере теряются при рестарте, логи — в панели Render | — |
+| Резервные копии | — | **нет** на бесплатном плане — делайте вручную (ниже) |
+
+- Перезапуск или деплой: бот недоступен до минуты, обновления Telegram при
+  этом не теряются — их отдадут при следующем polling. Во время деплоя
+  несколько секунд работают оба экземпляра, в логах возможны
+  `TelegramConflictError` — aiogram повторяет запрос сам.
+- Если упал бот или API либо heartbeat бота устарел на 3 минуты,
+  `supervisor` завершает контейнер, и Render запускает его заново.
+- `*.onrender.com` обслуживается через Cloudflare, который в России
+  замедляют. На бота и сайт это не влияет — к API они обращаются со своих
+  серверов вне России. Для iOS-приложения, которое обращается к API
+  напрямую с телефона, проверьте доступность заранее.
+- Rate limit входа (`/api/auth/*`) на Render считает попытки по адресу
+  соединения: `FORWARDED_ALLOW_IPS` остаётся `127.0.0.1`, так что подделанный
+  `X-Forwarded-For` не обходит лимит, но все запросы сайта приходят с адресов
+  его хостинга. Перед подключением сайта нужен доверенный канал между сайтом
+  и API (см. «Подключение сайта» ниже).
+- Регион данных — Франкфурт (ЕС). Хранение персональных данных клиентов
+  студии за пределами РФ может противоречить требованиям 152-ФЗ о
+  локализации; решение о допустимости — за владельцем студии.
+
+### 1. Supabase
+
+1. Зарегистрируйтесь на supabase.com (GitHub или email), карту не вводите.
+   Создайте проект в регионе **Central EU (Frankfurt)**, план Free. Пароль
+   базы сгенерируйте кнопкой и сохраните в менеджере паролей.
+2. В SQL Editor создайте отдельную роль и схему — приложение не получит
+   прав на служебные схемы Supabase, а таблицы не попадут в публичный Data
+   API (он публикует только `public`). Пароль сгенерируйте локально
+   (`openssl rand -hex 24`) и подставьте вместо `<ПАРОЛЬ>`:
+
+   ```sql
+   CREATE ROLE flamenco_app LOGIN PASSWORD '<ПАРОЛЬ>';
+   CREATE SCHEMA flamenco AUTHORIZATION flamenco_app;
+   ALTER ROLE flamenco_app SET search_path = flamenco;
+   ```
+
+   Таблицы создадут миграции при первом запуске backend.
+3. **Connect → Session pooler** (IPv4; прямое подключение у Supabase только
+   IPv6, а Render его не поддерживает). Возьмите host и project ref и
+   соберите `DATABASE_URL`:
+
+   ```text
+   postgresql://flamenco_app.<PROJECT_REF>:<ПАРОЛЬ>@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+   ```
+
+   Порт **5432** (session mode): бот и API используют сессионные advisory-
+   блокировки и подготовленные запросы asyncpg, transaction mode (6543) им
+   не подходит. Хост копируйте из панели — у проекта он может отличаться.
+4. **Database Settings → SSL Configuration → Download certificate** — CA
+   Supabase (`prod-ca-2021.crt`); он нужен для `verify-full`. Это публичный
+   сертификат, не секрет.
+
+### 2. Render
+
+1. Зарегистрируйтесь на render.com через GitHub. Карту не вводите. Если Render
+   попросит верификацию картой — остановитесь: это уже не «без карты».
+2. **New → Blueprint**, репозиторий `flamenco-studio-bot`, файл
+   [`render.yaml`](../render.yaml). На экране подтверждения должен быть один
+   сервис `flamenco-backend` с планом **Free** и **$0/month**.
+3. Render спросит секреты: `BOT_TOKEN`, `ADMINS`, `DATABASE_URL` (из шага 1),
+   `BOT_USERNAME` (без `@`). Значения хранятся только в Render.
+4. Сервис → **Environment → Secret Files**: файл `supabase-ca.crt` с
+   содержимым сертификата из шага 1 (путь `/etc/secrets/supabase-ca.crt`
+   уже задан в `DATABASE_SSL_CA`).
+5. Остановите локальный бот с тем же `BOT_TOKEN`: два polling-процесса с одним
+   токеном мешают друг другу.
+6. Дождитесь деплоя и проверьте (адрес — в шапке сервиса):
+
+   ```bash
+   curl https://<сервис>.onrender.com/api/health
+   # {"backend":"postgres","pool_size":…,"idle_connections":…}
+   ```
+
+   `"backend":"postgres"` — API подключён к Supabase. В логах Render должны
+   быть `Connected to PostgreSQL with TLS verification enabled`,
+   `Database migrations are up to date`, `Bot polling started`,
+   `Keep-alive enabled`. Затем отправьте боту `/start`.
+
+Если в логах ошибка чтения `/etc/secrets/supabase-ca.crt` (контейнер работает
+не от root): сертификат публичный, его можно положить в репозиторий,
+скопировать в образ и указать путь в `DATABASE_SSL_CA`.
+
+### 3. Мониторинг (по желанию)
+
+Монитор HTTP(S) на `https://<сервис>.onrender.com/api/health` с интервалом
+5 минут в UptimeRobot или cron-job.org (бесплатно, без карты; проверьте их
+условия для коммерческого использования). Он дублирует keep-alive и сообщит на
+email, если backend недоступен.
+
+### Обновление
+
+`git push` в `main` → CI (`.github/workflows/ci.yml`) → после зелёных
+проверок Render сам собирает и выкатывает образ (`autoDeployTrigger:
+checksPass`). Миграции применяются при старте. Ручной деплой: **Manual
+Deploy** в панели сервиса. Откат: **Rollback** на предыдущий деплой —
+схема БД при этом не откатывается.
+
+### Резервные копии (вручную)
+
+У бесплатного Supabase нет автоматических резервных копий. Раз в неделю и
+перед рискованными изменениями выгружайте схему `flamenco` (нужен Docker
+Desktop; версия `pg_dump` — не ниже версии PostgreSQL проекта, см.
+Database Settings):
+
+```bash
+read -rs PGPASSWORD && export PGPASSWORD   # пароль flamenco_app, не в истории
+docker run --rm -e PGPASSWORD \
+  -v "$HOME/flamenco-backups:/backups" \
+  -v "$PWD/prod-ca-2021.crt:/ca.crt:ro" \
+  postgres:17-alpine pg_dump \
+  "host=aws-0-eu-central-1.pooler.supabase.com port=5432 dbname=postgres user=flamenco_app.<PROJECT_REF> sslmode=verify-full sslrootcert=/ca.crt" \
+  --schema=flamenco --format=custom --file="/backups/flamenco-$(date +%Y%m%d).dump"
+```
+
+Дамп содержит персональные данные: храните его вне папок, синхронизируемых с
+облаком, на зашифрованном диске. Восстановление проверяйте в отдельную
+пустую БД (`pg_restore --no-owner --no-acl`), не поверх рабочей.
+
+### Подключение сайта
+
+Сайт (отдельный репозиторий FLAMENCO WEBSITE) обращается к API только со
+своего сервера: страницы и server actions вызывают `API_BASE_URL`, а
+браузерные `/api/*` проксирует rewrite Next.js. Браузер не делает запросов к
+`onrender.com`, поэтому **CORS в API не нужен и не включается**, а cookie
+сессии остаётся first-party cookie домена сайта.
+
+- Хостинг: не Render (часы workspace уже заняты backend'ом) и не Vercel Hobby
+  (по условиям Vercel — только некоммерческое использование). Бесплатный
+  вариант без карты — Netlify Free: 300 кредитов в месяц, при исчерпании
+  сайт приостанавливается до следующего месяца без списаний; продакшен-деплой
+  стоит 15 кредитов.
+- Переменные окружения сайта (задаются **до сборки**: адрес rewrite
+  записывается при `next build`):
+
+  ```text
+  API_BASE_URL=https://<сервис>.onrender.com
+  NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=<имя бота без @>
+  STUDIO_TIMEZONE=Europe/Moscow
+  ```
+
+- После публикации сайта: в Render задайте `WEBSITE_URL=https://<домен сайта>`
+  (бот покажет ссылку на сайт), в @BotFather — `/setdomain` с доменом сайта
+  для Telegram Login Widget. `WEB_YOOKASSA_RETURN_URL` — только при
+  подключении ЮKassa к сайту.
+- Rate limit входа: до доверенного канала сайт → API (общий секрет в
+  заголовке, которым сайт подтверждает переданный `X-Forwarded-For`) все
+  попытки входа через сайт считаются от адресов сервера сайта, и при
+  нескольких одновременных входах возможен ответ 429. Обхода лимита при
+  этом нет. Это изменение обоих репозиториев — сделайте его до открытия сайта
+  клиентам.
+
 ## Первичная подготовка VPS
 
 1. Выберите поддерживаемый Linux LTS, обновите ОС и установите Docker Engine с

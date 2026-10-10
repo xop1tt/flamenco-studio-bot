@@ -210,6 +210,10 @@ PostgreSQL с проверкой TLS.
 
 ## 🖥️ Развёртывание на сервере
 
+Бесплатный вариант без сервера и без банковской карты — Render Free + Supabase
+Free ([`render.yaml`](./render.yaml), бот и API в одном контейнере): см.
+[`docs/deployment.md`](./docs/deployment.md), «Бесплатное размещение».
+
 Для сервера подготовлены [Dockerfile](./Dockerfile) и
 [Compose-конфигурация](./compose.yaml) с двумя сервисами: `bot` и `api`
 (веб-API, `src/flamenco_bot/api`). Сайт — отдельный проект со своим
