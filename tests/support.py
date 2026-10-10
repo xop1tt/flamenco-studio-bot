@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
+import importlib.util
+import os
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Optional
 import uuid
 from unittest.mock import AsyncMock, Mock
 
@@ -257,8 +260,6 @@ class FakeConnection:
 
     async def execute(self, query, *args):
         self.calls.append((query, args))
-        if "INSERT INTO schema_migrations" in query:
-            self.applied_migrations.add(args[0])
         return "UPDATE 1"
 
     async def fetchrow(self, query, *args):
@@ -284,6 +285,8 @@ class FakeConnection:
 
     async def fetchval(self, query, *args):
         self.calls.append((query, args))
+        if "to_regclass('schema_migrations')" in query:
+            return "schema_migrations" if self.applied_migrations else None
         return 0
 
     def transaction(self):
@@ -345,3 +348,38 @@ class FakeDispatcher:
 
     def __setitem__(self, key, value):
         setattr(self, key, value)
+
+
+# Миграции живут в репозитории базы данных (flamenco-db): локально — соседняя
+# папка «FLAMENCO DB», в CI — путь из FLAMENCO_DB_DIR. Интеграционные тесты
+# создают схему той же функцией migrate.apply_migrations, что и production.
+DB_REPOSITORY = Path(
+    os.getenv("FLAMENCO_DB_DIR") or Path(__file__).resolve().parents[2] / "FLAMENCO DB"
+)
+_db_migrate = None
+
+
+def db_migrate():
+    """Модуль migrate.py репозитория базы данных."""
+    global _db_migrate
+    if _db_migrate is None:
+        path = DB_REPOSITORY / "migrate.py"
+        if not path.is_file():
+            raise RuntimeError(
+                "Не найден {} — склонируйте flamenco-db рядом с проектом или "
+                "задайте FLAMENCO_DB_DIR".format(path)
+            )
+        spec = importlib.util.spec_from_file_location("flamenco_db_migrate", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _db_migrate = module
+    return _db_migrate
+
+
+async def apply_migrations(pool: Any, directory: Optional[Path] = None) -> list:
+    """Применяет миграции flamenco-db в схему из search_path пула."""
+    migrate = db_migrate()
+    async with pool.acquire() as connection:
+        return await migrate.apply_migrations(
+            connection, directory or migrate.MIGRATIONS_DIRECTORY
+        )

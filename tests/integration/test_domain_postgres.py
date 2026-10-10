@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import asyncpg
+from tests.support import apply_migrations
 
 from flamenco_bot.database import repository as repository_module
 from flamenco_bot.database.repository import (
@@ -54,6 +55,7 @@ class DomainPostgresTests(unittest.IsolatedAsyncioTestCase):
             DATABASE_URL, server_settings={"search_path": self.schema}
         )
         self.repo = PostgresRepository(self.pool)
+        await apply_migrations(self.pool)
         await self.repo.initialize()
 
     async def asyncTearDown(self):

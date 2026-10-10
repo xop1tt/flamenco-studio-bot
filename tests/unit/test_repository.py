@@ -6,11 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.database.repository import (
     DatabaseUnavailableError,
-    MIGRATIONS_DIRECTORY,
-    InMemoryRepository,
+    REQUIRED_SCHEMA_VERSION,
     PostgresRepository,
+    SchemaVersionError,
     is_database_configured,
 )
 from tests.support import FakePool
@@ -209,46 +210,36 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((health.pool_size, health.idle_connections), (1, 1))
         self.assertEqual(self.pool.connection.calls[-1], ("SELECT 1", ()))
 
-    async def test_schema_initialize_and_pool_close(self):
-        await self.repository.initialize()
-        migration_calls = [
-            query
-            for query, _ in self.pool.connection.calls
-            if "CREATE TABLE IF NOT EXISTS bot_users" in query
-        ]
-        self.assertEqual(len(migration_calls), 1)
-        await self.repository.initialize()
-        migration_calls = [
-            query
-            for query, _ in self.pool.connection.calls
-            if "CREATE TABLE IF NOT EXISTS bot_users" in query
-        ]
-        self.assertEqual(len(migration_calls), 1)
-        expected_versions = {
-            migration.name.split("_", 1)[0]
-            for migration in MIGRATIONS_DIRECTORY.glob("*.sql")
-        }
-        self.assertEqual(
-            self.pool.connection.applied_migrations,
-            expected_versions,
-        )
+    async def test_initialize_accepts_current_or_newer_schema_without_changing_it(self):
+        for versions in (
+            {"001", REQUIRED_SCHEMA_VERSION},
+            {
+                "001",
+                REQUIRED_SCHEMA_VERSION,
+                "{:03d}".format(int(REQUIRED_SCHEMA_VERSION) + 1),
+            },
+        ):
+            with self.subTest(versions=sorted(versions)):
+                self.pool.connection.applied_migrations = versions
+                self.pool.connection.calls.clear()
+                await self.repository.initialize()
+                # Только чтение: схему меняет flamenco-db (migrate.py).
+                self.assertFalse(
+                    [
+                        q
+                        for q, _ in self.pool.connection.calls
+                        if "CREATE" in q or "INSERT" in q
+                    ]
+                )
         await self.repository.close()
 
-    async def test_schema_protects_profile_identity_and_request_states(self):
-        migration = (MIGRATIONS_DIRECTORY / "001_initial_schema.sql").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("telegram_id BIGINT PRIMARY KEY", migration)
-        self.assertIn("CHECK (kind IN ('booking', 'purchase'))", migration)
-        self.assertIn("REFERENCES bot_users", migration)
-
-    async def test_runtime_payment_migration_tracks_activity_and_paid_credits(self):
-        migration = (MIGRATIONS_DIRECTORY / "002_runtime_and_payments.sql").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("last_seen_at", migration)
-        self.assertIn("lesson_credits", migration)
-        self.assertIn("CREATE TABLE IF NOT EXISTS lesson_payments", migration)
+    async def test_initialize_refuses_outdated_or_missing_schema(self):
+        older = "{:03d}".format(int(REQUIRED_SCHEMA_VERSION) - 1)
+        for versions in (set(), {"001", older}):
+            with self.subTest(versions=sorted(versions)):
+                self.pool.connection.applied_migrations = versions
+                with self.assertRaisesRegex(SchemaVersionError, "migrate.py"):
+                    await self.repository.initialize()
 
     async def test_database_configuration_detects_missing_and_placeholder_urls(self):
         self.assertFalse(is_database_configured(""))

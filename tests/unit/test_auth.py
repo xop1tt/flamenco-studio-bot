@@ -3,7 +3,7 @@ import hmac
 import time
 import unittest
 
-from flamenco_bot.database.repository import InMemoryRepository
+from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.services.auth import (
     AuthService,
     CannotUnlinkOnlyLoginMethodError,

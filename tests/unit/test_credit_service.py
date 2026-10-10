@@ -3,11 +3,11 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
+from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.database.repository import (
     CreditAdjustment,
     CreditBalanceMismatch,
     CreditReconciliation,
-    InMemoryRepository,
 )
 from flamenco_bot.services import CreditService
 

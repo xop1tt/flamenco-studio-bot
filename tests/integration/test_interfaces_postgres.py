@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
+from tests.support import apply_migrations
 import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.methods import SendMessage
@@ -116,6 +117,7 @@ class InterfacesSharePostgresTests(unittest.IsolatedAsyncioTestCase):
         async with self.admin_pool.acquire() as connection:
             await connection.execute('CREATE SCHEMA "{}"'.format(self.schema))
         self.bot_repo = await self._repository()
+        await apply_migrations(self.pools[-1])
         await self.bot_repo.initialize()
         self.api_repo = await self._repository()
         self.client = None

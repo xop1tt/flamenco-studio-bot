@@ -77,7 +77,6 @@ Telegram-бот для студии фламенко: профиль участ�
 ├── compose.yaml             # Production-запуск bot/api
 ├── Dockerfile               # Образ приложения без root-привилегий
 ├── .dockerignore            # Исключения из контекста сборки
-├── docker-compose.backup.yml # Зашифрованные резервные копии PostgreSQL
 ├── logs/                    # Локальные журналы; содержимое не публикуется
 ├── src/flamenco_bot/
 │   ├── api/                 # Веб-API (FastAPI) — второй интерфейс к тем же
@@ -85,8 +84,7 @@ Telegram-бот для студии фламенко: профиль участ�
 │   ├── commands/            # Команды Telegram
 │   ├── class_catalog.py     # Названия форматов и расписание
 │   ├── config/              # Конфигурация из окружения
-│   ├── database/
-│   │   └── migrations/      # Версионируемые SQL-миграции
+│   ├── database/            # Репозиторий данных (PostgreSQL и in-memory)
 │   ├── handlers/            # Команды, администрация и поддержка
 │   ├── keyboards/
 │   │   ├── admin/           # Клавиатуры администратора
@@ -103,8 +101,10 @@ Telegram-бот для студии фламенко: профиль участ�
 ├── docs/                    # Развёртывание, операции, Web API для сайта (api.md)
 ├── env.example              # Безопасный пример конфигурации
 ├── pyproject.toml           # Метаданные и настройки сборки
-├── requirements.in          # Входной файл зависимостей
-└── requirements.txt         # Зафиксированные зависимости с хешами
+├── requirements.in          # Зависимости приложения (вход для uv pip compile)
+├── requirements.txt         # Они же, зафиксированные с хешами (образ)
+├── requirements-dev.in      # Тесты и линтер
+└── requirements-dev.txt     # requirements.txt + инструменты разработки, с хешами
 ```
 
 В корень намеренно оставлены файлы, которые ожидают стандартные инструменты
@@ -153,10 +153,11 @@ python -m pip install --upgrade pip
 
 ### 3. Установите приложение
 
-Один lock-файл с хешами покрывает запуск, разработку и тесты:
+Зависимости зафиксированы с хешами: `requirements.txt` — приложение (его же
+ставит Docker-образ), `requirements-dev.txt` — оно же плюс тесты и линтер:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-dev.txt
 python -m pip install --no-deps -e .
 ```
 
@@ -257,9 +258,10 @@ backend'а. Все контейнеры запускаются не от root, �
    live-платежами замените демонстрационные цены, настройте
    чеки/фискализацию и проверьте тестовый сценарий.
 5. Убедитесь, что указана отдельная production-база, пользователь приложения
-   имеет права, необходимые для миграций, а лимит соединений учитывает размер
-   пула и оба контейнера с БД (`bot` и `api`). Применение миграций выполняется при старте
-   `bot`/`api` (первый из них, кто стартует).
+   имеет права на таблицы схемы, а лимит соединений учитывает размер
+   пула и оба контейнера с БД (`bot` и `api`). Миграции примените заранее из
+   репозитория `flamenco-db` (`python migrate.py`): на старой схеме `bot` и
+   `api` не запускаются.
 6. Соберите образы и запустите:
 
    ```bash
@@ -290,9 +292,8 @@ backend'а. Все контейнеры запускаются не от root, �
 `compose.yaml` ожидает файл `.env` рядом с собой и сохраняет файлы `bot` в
 named volume `bot_logs`; стандартный Docker log driver также ограничивает
 объём stdout/stderr у обоих сервисов. Резервные копии PostgreSQL
-настраиваются отдельно через
-[`docker-compose.backup.yml`](./docker-compose.backup.yml) и не заменяют
-проверенный внешний backup/restore-план. Для частного CA PostgreSQL примонтируйте
+настраиваются в репозитории `flamenco-db` и не заменяют проверенный внешний
+backup/restore-план. Для частного CA PostgreSQL примонтируйте
 сертификат внутрь контейнера read-only и задайте `DATABASE_SSL_CA` его
 контейнерным путём.
 
@@ -322,7 +323,7 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 | `YOOKASSA_SECRET_KEY` | Для платежей | Секретный ключ ЮKassa |
 | `YOOKASSA_RETURN_URL` | Для платежей | URL возврата после checkout, начатого в боте |
 | `WEB_YOOKASSA_RETURN_URL` | Для платежей на сайте | Отдельный URL возврата для checkout, начатого на сайте (`/api/payments`); пока пуст — оплата на сайте отвечает 503 |
-| `BACKUP_*` | Для backup sidecar | Параметры PostgreSQL, Docker-сеть, ключ шифрования и срок хранения; см. раздел о резервных копиях |
+| `FRONTEND_PROXY_SECRET` | Сайт на другом хостинге | Общий секрет сайта и API (≥ 32 символов): сайт передаёт IP посетителя для rate limit входа |
 
 Полный шаблон находится в [`env.example`](https://github.com/xop1tt/flamenco-studio-bot/blob/main/env.example).
 
@@ -343,41 +344,18 @@ named volume `bot_logs`; стандартный Docker log driver также о�
 ## 🗄️ PostgreSQL и миграции
 
 Создайте отдельную базу и пользователя приложения с минимально необходимыми
-правами. Для первичной установки таблиц приложению нужен `CREATE` в выделенной
-схеме. Не выдавайте сервисному пользователю `SUPERUSER` или права управления
+правами. Миграциям (`flamenco-db`) нужен `CREATE` в выделенной схеме. Не выдавайте сервисному пользователю `SUPERUSER` или права управления
 ролями. Ограничьте доступ к базе, резервным копиям и сетевому порту PostgreSQL.
 
-При инициализации бот последовательно применяет SQL-файлы из
-[`database/migrations/`](https://github.com/xop1tt/flamenco-studio-bot/tree/main/src/flamenco_bot/database/migrations):
-
-- `001_initial_schema.sql` — профили и заявки на занятия.
-- `002_runtime_and_payments.sql` — отметка активности, баланс занятий и платежи.
-- `003_operations_and_payment_ledger.sql` — устойчивые попытки оплаты, аудит
-  движений занятий, возвраты и настройки запланированного рестарта.
-- `004_class_slots_and_support.sql` — расписание, атомарные записи на занятия и
-  сохранённые обращения в поддержку.
-- `005`–`009` — веб-аккаунты и сессии сайта, защита вместимости слотов и индекс
-  сверки платежей.
-- `010_credit_ledger_audit.sql` — актор и причина в ledger занятий, тип
-  `admin_adjustment`; платежи, попытки оплаты и ledger больше не удаляются
-  каскадно вместе с профилем (`ON DELETE RESTRICT`).
-- `011_slot_lifecycle.sql` — терминальный статус слота `cancelled`, причина и
-  момент отмены, момент переноса, журнал изменений слота
-  `lesson_slot_events`, индексы для «Моих занятий» и напоминаний.
-- `012_packages_and_ledger_links.sql` — выданные студией абонементы
-  `lesson_package_grants`; в ledger — ссылки на абонемент (`grant_id`) и бронь
-  (`booking_id`, заполнена и для существующих строк), типы
-  `slot_cancellation`, `package_grant`, `package_revoke` с обязательным
-  актором.
-- `013_user_notifications.sql` — outbox уведомлений участникам и их
-  настройки в `bot_users` (`notify_reminders`, `notify_low_balance`).
-- `014_telegram_connect.sql` — одноразовые запросы входа/привязки на сайте
-  через бота (в БД — только SHA-256 токенов).
-
-Уже применённые миграции не редактируйте. Каждое изменение схемы добавляйте
-новым последовательно пронумерованным файлом. Бот хранит данные профиля, включая
-Telegram ID и телефон, и не удаляет профили автоматически; заранее определите
-политику хранения и удаления персональных данных по следующему разделу.
+Схему создают и меняют миграции отдельного репозитория базы данных
+[`flamenco-db`](https://github.com/xop1tt/flamenco-db) (локально — папка
+`FLAMENCO DB` рядом с этим проектом): там же список миграций, их проверка в CI и
+применение к Supabase. Бот и API схему не меняют: при старте они проверяют, что
+версия схемы не ниже `REQUIRED_SCHEMA_VERSION`
+(`src/flamenco_bot/database/repository.py`), и иначе не запускаются. Порядок
+выкладки — сначала база, потом бот. Бот хранит данные профиля, включая Telegram
+ID и телефон, и не удаляет профили автоматически; заранее определите политику
+хранения и удаления персональных данных по следующему разделу.
 
 Соединение с удалённой БД проверяет TLS-сертификат. Для частного CA укажите
 `DATABASE_SSL_CA`. Отключение TLS разрешено только для `localhost`, `127.0.0.1`
@@ -586,52 +564,10 @@ checkout и кнопку ручной проверки статуса. Публ�
 
 ## 🗃️ Резервные копии
 
-Файл [`docker-compose.backup.yml`](./docker-compose.backup.yml) запускает отдельный
-контейнер `postgres:16-alpine`: при старте и затем каждые 24 часа он создаёт
-`pg_dump` в формате custom, шифрует архив AES-256-CBC с PBKDF2 и сохраняет его в
-Docker volume `encrypted_backups`. Для контроля целостности рядом хранится
-HMAC-SHA-256 с тем же защищаемым ключом. Архивы старше 30 дней удаляются. Volume
-находится на Docker-хосте: отдельно обеспечьте резервирование самого хоста или
-volume в независимое хранилище, если оно требуется.
-
-1. Заполните в локальном `.env` переменные `BACKUP_*` из
-   [`env.example`](./env.example). `BACKUP_DOCKER_NETWORK` должен быть именем
-   существующей Docker-сети, через которую контейнер достигнет PostgreSQL;
-   `BACKUP_PGHOST` укажите как hostname базы внутри этой сети. По умолчанию
-   используется `BACKUP_PGSSLMODE=verify-full`; для частного CA задайте
-   `BACKUP_PGSSLROOTCERT` на путь к сертификату, смонтированному в контейнер
-   (добавьте соответствующий read-only mount в Compose).
-2. Сгенерируйте длинный случайный `BACKUP_ENCRYPTION_KEY`, сохраните его вне
-   сервера и отдельно от volume. Потеря ключа делает архивы невосстановимыми.
-   Не используйте пустой ключ и не коммитьте `.env`.
-3. Запустите backup sidecar:
-
-   ```bash
-   docker compose --env-file .env -f docker-compose.backup.yml up -d
-   docker compose --env-file .env -f docker-compose.backup.yml logs -f postgres-backup
-   ```
-
-Перед вводом в эксплуатацию проверьте создание архива и восстановите один из
-них в отдельную тестовую БД. Для восстановления укажите URL пустой БД и имя
-существующего архива:
-
-```bash
-docker compose --env-file .env -f docker-compose.backup.yml exec -T \
-  -e BACKUP_RESTORE_DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/EMPTY_TEST_DB' \
-  postgres-backup sh -o pipefail -ec \
-  'archive=/backups/flamenco-YYYYMMDDTHHMMSSZ.dump.enc
-   expected=$(cat "$archive.hmac")
-   actual=$(openssl dgst -sha256 \
-     -hmac "integrity:$BACKUP_ENCRYPTION_KEY" "$archive" | awk "{print \$2}")
-   test "$actual" = "$expected"
-   openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
-    -pass env:BACKUP_ENCRYPTION_KEY \
-    -in "$archive" |
-   pg_restore --no-owner --no-acl --dbname="$BACKUP_RESTORE_DATABASE_URL"'
-```
-
-Не восстанавливайте поверх рабочей базы без проверенного плана и резервной копии
-текущего состояния.
+Резервное копирование — часть репозитория базы данных `flamenco-db`: ручная
+выгрузка Supabase (`pg_dump` схемы `flamenco`) и зашифрованные ежедневные архивы
+`docker-compose.backup.yml` для своего сервера, а также проверка восстановления.
+См. README `flamenco-db`, раздел «Резервные копии».
 
 ## 🧹 Хранение и удаление данных
 
@@ -699,7 +635,9 @@ python -m unittest discover -s tests/unit -v
 Эта переменная намеренно отдельная от `DATABASE_URL`, чтобы тест не использовал
 рабочую БД. Тест создаёт временную схему и удаляет её после выполнения; указанная
 база должна быть выделенной тестовой, а пользователь — иметь право создавать и
-удалять схемы.
+удалять схемы. Схему во временной схеме создаёт `migrate.py` репозитория
+`flamenco-db`: по умолчанию он берётся из соседней папки `FLAMENCO DB`, иначе
+укажите путь в `FLAMENCO_DB_DIR`.
 
 ```bash
 TEST_DATABASE_URL='postgresql://bot_test:change-me@localhost:5432/flamenco_test' \

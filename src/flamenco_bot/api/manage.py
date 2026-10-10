@@ -35,8 +35,7 @@ async def _connect():
         ssl_mode=WebConfig.DATABASE_SSL_MODE,
         allow_insecure_local=WebConfig.ENV == "development",
     )
-    # Применяет новые миграции (в том числе users.is_admin), если API ещё
-    # не запускался после обновления.
+    # Схема должна быть не старее нужной коду (миграции — в flamenco-db).
     await repository.initialize()
     return repository
 

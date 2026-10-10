@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import asyncpg
+from tests.support import apply_migrations
 import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.methods import SendMessage
@@ -64,6 +65,7 @@ class ProductFlowsPostgresTests(unittest.IsolatedAsyncioTestCase):
             await connection.execute('CREATE SCHEMA "{}"'.format(self.schema))
         self.pools = []
         self.bot_repo = await self._repository()
+        await apply_migrations(self.pools[-1])
         await self.bot_repo.initialize()
         self.api_repo = await self._repository()
         await self.bot_repo.get_or_create_profile(ADMIN_ID, "Админ", True)

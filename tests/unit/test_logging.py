@@ -20,13 +20,15 @@ from flamenco_bot.runtime.answers_logging import (
     AnswersLogMiddleware,
     create_answers_logger,
 )
-from flamenco_bot.runtime.admin_actions_logging import create_admin_actions_logger
 from flamenco_bot.runtime.bot_logging import (
     UpdateLoggingMiddleware,
     UpdateMetrics,
     configure_logging,
 )
-from flamenco_bot.runtime.logging_utils import RetentionRotatingFileHandler
+from flamenco_bot.runtime.logging_utils import (
+    RetentionRotatingFileHandler,
+    create_admin_actions_logger,
+)
 from flamenco_bot.runtime.monitoring import monitor_health
 from flamenco_bot.runtime.paths import get_log_directory
 

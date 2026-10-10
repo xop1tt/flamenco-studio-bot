@@ -9,8 +9,7 @@ from aiogram.client.session.middlewares.base import (
 )
 from aiogram.methods import Response, TelegramMethod
 
-from .logging_utils import RetentionRotatingFileHandler
-from .paths import get_log_directory
+from .logging_utils import create_file_logger
 
 
 MESSAGE_METHODS = {
@@ -37,27 +36,7 @@ MESSAGE_METHODS = {
 
 
 def create_answers_logger(log_directory: Optional[Path] = None) -> logging.Logger:
-    logger = logging.getLogger("bot.answers")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    target_directory = log_directory or get_log_directory()
-    target_directory.mkdir(parents=True, exist_ok=True)
-    target_file = (target_directory / "answers_log").resolve()
-    if not any(
-        getattr(handler, "baseFilename", None) == str(target_file)
-        for handler in logger.handlers
-    ):
-        handler = RetentionRotatingFileHandler(
-            target_file,
-            encoding="utf-8",
-            maxBytes=5_000_000,
-            backupCount=3,
-        )
-        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-        logger.addHandler(handler)
-
-    return logger
+    return create_file_logger("bot.answers", "answers_log", log_directory)
 
 
 class AnswersLogMiddleware(BaseRequestMiddleware):

@@ -1,7 +1,7 @@
 from .errors import is_database_unavailable
+from .memory import InMemoryRepository
 from .repository import (
     EmailAlreadyRegisteredError,
-    InMemoryRepository,
     LessonRequest,
     PostgresRepository,
     TelegramAlreadyLinkedError,

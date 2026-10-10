@@ -7,10 +7,10 @@
 """
 
 import logging
-from typing import Any, Sequence
+from typing import Any
 
 from ..class_catalog import CLASS_LABELS
-from ..database.repository import ClassBooking, ClassSlot
+from ..database.repository import ClassBooking
 from ..studio_time import format_studio_datetime
 from .notifications import AdminNotifier, NotificationReport
 
@@ -22,9 +22,6 @@ class BookingService:
     def __init__(self, repository: Any, notifier: AdminNotifier) -> None:
         self.repository = repository
         self.notifier = notifier
-
-    async def list_available_slots(self, class_key: str) -> Sequence[ClassSlot]:
-        return await self.repository.list_available_class_slots(class_key)
 
     async def book(
         self,

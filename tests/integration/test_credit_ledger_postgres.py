@@ -14,18 +14,17 @@ import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 import asyncpg
+from tests.support import apply_migrations, db_migrate
 
-from flamenco_bot.database import repository as repository_module
 from flamenco_bot.database.repository import (
     InsufficientLessonCreditsError,
     PostgresRepository,
 )
 
 DATABASE_URL = os.getenv("TEST_DATABASE_URL")
-MIGRATIONS = Path(repository_module.__file__).resolve().parent / "migrations"
+MIGRATIONS = db_migrate().MIGRATIONS_DIRECTORY
 ADMIN_ID = 9001
 
 
@@ -43,6 +42,7 @@ class CreditLedgerPostgresTests(unittest.IsolatedAsyncioTestCase):
             DATABASE_URL, server_settings={"search_path": self.schema}
         )
         self.repo = PostgresRepository(self.pool)
+        await apply_migrations(self.pool)
         await self.repo.initialize()
         await self.repo.get_or_create_profile(ADMIN_ID, "Админ", True)
         async with self.pool.acquire() as connection:
@@ -515,8 +515,7 @@ class CreditLedgerPostgresTests(unittest.IsolatedAsyncioTestCase):
             )
             try:
                 repo = PostgresRepository(pool)
-                with patch.object(repository_module, "MIGRATIONS_DIRECTORY", before):
-                    await repo.initialize()
+                await apply_migrations(pool, before)
                 await repo.get_or_create_profile(100, "Старый", False)
                 async with pool.acquire() as connection:
                     await connection.execute(
@@ -532,7 +531,7 @@ class CreditLedgerPostgresTests(unittest.IsolatedAsyncioTestCase):
                         """
                     )
 
-                await repo.initialize()  # применяет 010 к существующей схеме
+                await apply_migrations(pool)  # применяет 010 к существующей схеме
 
                 async with pool.acquire() as connection:
                     rows = await connection.fetch(

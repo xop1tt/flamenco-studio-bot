@@ -220,7 +220,8 @@ Telegram ◄── polling ──┐
    ALTER ROLE flamenco_app SET search_path = flamenco;
    ```
 
-   Таблицы создадут миграции при первом запуске backend.
+   Таблицы создают миграции репозитория `flamenco-db`: workflow «Migrations»
+   после настройки секрета `DATABASE_URL` (README `flamenco-db`, «Supabase»).
 3. **Connect → Session pooler** (IPv4; прямое подключение у Supabase только
    IPv6, а Render его не поддерживает). Возьмите host и project ref и
    соберите `DATABASE_URL`:
@@ -264,7 +265,7 @@ Telegram ◄── polling ──┐
 
    `"backend":"postgres"` — API подключён к Supabase. В логах Render должны
    быть `Connected to PostgreSQL with TLS verification enabled`,
-   `Database migrations are up to date`, `Bot polling started`,
+   `Database schema version=…`, `Bot polling started`,
    `Keep-alive enabled`. Затем отправьте боту `/start`.
 
 Если в логах ошибка чтения `/etc/secrets/supabase-ca.crt` (контейнер работает
@@ -282,30 +283,17 @@ email, если backend недоступен.
 
 `git push` в `main` → CI (`.github/workflows/ci.yml`) → после зелёных
 проверок Render сам собирает и выкатывает образ (`autoDeployTrigger:
-checksPass`). Миграции применяются при старте. Ручной деплой: **Manual
+checksPass`). Изменения схемы выкладываются раньше — push в `flamenco-db`;
+на старой схеме новый образ не стартует, и Render оставит прежний. Ручной деплой: **Manual
 Deploy** в панели сервиса. Откат: **Rollback** на предыдущий деплой —
 схема БД при этом не откатывается.
 
-### Резервные копии (вручную)
+### Резервные копии
 
-У бесплатного Supabase нет автоматических резервных копий. Раз в неделю и
-перед рискованными изменениями выгружайте схему `flamenco` (нужен Docker
-Desktop; версия `pg_dump` — не ниже версии PostgreSQL проекта, см.
-Database Settings):
-
-```bash
-read -rs PGPASSWORD && export PGPASSWORD   # пароль flamenco_app, не в истории
-docker run --rm -e PGPASSWORD \
-  -v "$HOME/flamenco-backups:/backups" \
-  -v "$PWD/prod-ca-2021.crt:/ca.crt:ro" \
-  postgres:17-alpine pg_dump \
-  "host=aws-0-eu-central-1.pooler.supabase.com port=5432 dbname=postgres user=flamenco_app.<PROJECT_REF> sslmode=verify-full sslrootcert=/ca.crt" \
-  --schema=flamenco --format=custom --file="/backups/flamenco-$(date +%Y%m%d).dump"
-```
-
-Дамп содержит персональные данные: храните его вне папок, синхронизируемых с
-облаком, на зашифрованном диске. Восстановление проверяйте в отдельную
-пустую БД (`pg_restore --no-owner --no-acl`), не поверх рабочей.
+У бесплатного Supabase нет автоматических резервных копий. Команда выгрузки
+схемы `flamenco` и проверка восстановления — в README `flamenco-db`, раздел
+«Резервные копии»; выполняйте её раз в неделю и перед рискованными
+миграциями.
 
 ### Подключение сайта
 
@@ -357,8 +345,8 @@ docker run --rm -e PGPASSWORD \
    права (`chmod 600 .env`). Секреты не передавайте в аргументах команд,
    Dockerfile, git, логи или обращения в поддержку.
 5. Создайте отдельную production-базу PostgreSQL. Выдайте пользователю бота
-   только необходимые права на выделенную схему; миграции при старте создают
-   таблицы и версионируют изменения схемы.
+   только необходимые права на выделенную схему и примените миграции
+   `flamenco-db` (`python migrate.py`) — backend их не применяет.
 6. Запускайте `docker compose up -d --build`; после этого проверьте
    `docker compose ps` и `docker compose logs --tail=100 bot api`.
    Убедитесь, что видно успешное TLS-подключение к PostgreSQL, начало polling

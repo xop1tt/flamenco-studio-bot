@@ -1,11 +1,11 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
+from flamenco_bot.database import InMemoryRepository
 from flamenco_bot.database.repository import (
     BookingCooldownError,
     BookingNotFoundError,
     CancellationWindowExpiredError,
-    InMemoryRepository,
     InsufficientLessonCreditsError,
     SlotUnavailableError,
     UserProfile,

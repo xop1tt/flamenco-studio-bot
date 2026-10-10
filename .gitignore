@@ -1,68 +1,48 @@
 # Python
 __pycache__/
 *.py[cod]
-*$pyo
-.Python
-venv/
-env/
+*.egg-info/
+/build/
 .venv/
 .venv-*/
-*.egg-info/
-*.dist/
+venv/
 
-# Virtual environment
+# Окружение и секреты (шаблон — env.example)
 .env
-.env.local
 .env.*
 !env.example
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Тесты и инструменты
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# AIogram logs
+# Журналы бота (каталог logs/ хранится пустым)
 *.log
 /logs/*
 !/logs/.gitkeep
 /answers_log
 /admin_actions_log
 
-# Database
+# Локальные данные
 *.db
 *.sqlite
 *.sqlite3
-
-# Uploads
-media/uploads/*
-!media/uploads/.gitkeep
-
-# Downloads
-media/downloads/*
-!media/downloads/.gitkeep
-
-# Debug
 *.pkl
 *.pickle
-*.pth
-
-# Coverage
-.coverage
-.coverage.*
-htmlcov/
-
-# Temp files
 *.tmp
-__pycache__/
 
-# Local convenience run scripts (dev only, not for production)
+# IDE и ОС
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Локальные скрипты запуска (только для разработки)
 /run-bot.sh
 /run-website.sh
-# Артефакты сборки пакета (pip install . / setuptools)
-/build/

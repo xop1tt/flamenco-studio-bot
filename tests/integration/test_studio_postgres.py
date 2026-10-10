@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
+from tests.support import apply_migrations
 
 from flamenco_bot.database.repository import (
     BookingNotFoundError,
@@ -48,6 +49,7 @@ class StudioPostgresTests(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema},
         )
         self.repo = PostgresRepository(self.pool)
+        await apply_migrations(self.pool)
         await self.repo.initialize()
         await self.repo.get_or_create_profile(ADMIN_ID, "Админ", True)
         await self._sql(

@@ -24,7 +24,7 @@ from .database import (
     PostgresRepository,
     is_database_configured,
 )
-from .database.repository import DatabaseUnavailableError
+from .database.repository import DatabaseUnavailableError, SchemaVersionError
 from .payments import YooKassaClient
 from .services import PaymentService
 from .handlers import router
@@ -178,6 +178,12 @@ async def main():
                     "сервер PostgreSQL недоступен. Запустите сервер БД "
                     "или очистите DATABASE_URL в .env, если временно допустимо "
                     "хранение только в памяти.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif isinstance(error, SchemaVersionError):
+                print(
+                    "Не удалось запустить бота: {}".format(error),
                     file=sys.stderr,
                     flush=True,
                 )

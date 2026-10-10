@@ -18,4 +18,4 @@ docs
 env.example
 answers_log
 admin_actions_log
-docker-compose.backup.yml
+requirements-dev.*

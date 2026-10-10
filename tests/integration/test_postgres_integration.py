@@ -5,9 +5,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
+from tests.support import apply_migrations, db_migrate
 
 from flamenco_bot.database.repository import (
-    MIGRATIONS_DIRECTORY,
     PaymentAttemptUnresolved,
     PostgresRepository,
     SlotUnavailableError,
@@ -60,6 +60,7 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     """
                 )
             self.repository = PostgresRepository(self.pool)
+            await apply_migrations(self.pool)
             await self.repository.initialize()
             await self.repository.get_or_create_profile(
                 self.telegram_id,
@@ -121,16 +122,14 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
         # чтобы тест не расходился с реальностью при добавлении новых миграций
         # (так уже произошло: здесь проверялись только "001"-"004", когда в
         # каталоге появилась "005_web_accounts.sql").
-        expected_versions = sorted(
-            migration.name.split("_", 1)[0]
-            for migration in MIGRATIONS_DIRECTORY.glob("*.sql")
-        )
+        expected_versions = [version for version, _ in db_migrate().migration_files()]
         self.assertEqual(
             [record["version"] for record in versions],
             expected_versions,
         )
         self.assertEqual(index_name, "lesson_requests_pending_created_idx")
 
+        self.assertEqual(await apply_migrations(pool), [])
         await repository.initialize()
         async with pool.acquire() as connection:
             legacy_payment_id = await connection.fetchval(
